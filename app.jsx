@@ -316,9 +316,7 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
   const [chosen, setChosen] = useState(null);
 
   const toggleInterest = (chip) => {
-    setInterests((prev) =>
-      prev.includes(chip) ? prev.filter((c) => c !== chip) : [...prev, chip]
-    );
+    setInterests((prev) => prev.includes(chip) ? [] : [chip]);
   };
 
   const canSubmit = interests.length > 0 || freeText.trim().length > 0;
@@ -408,7 +406,7 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
           {/* 관심사 칩 */}
           <div className="mb-6">
             <label className="block text-[13px] font-semibold text-slate-700 mb-3">
-              관심 분야 <span className="text-slate-400 font-normal">(여러 개 선택 가능)</span>
+              관심 분야 <span className="text-slate-400 font-normal">(하나만 선택)</span>
             </label>
             <div className="flex flex-col gap-2.5">
               {INTEREST_CATEGORIES.map((cat) => (
@@ -556,6 +554,10 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
 function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, setSelected, onNext, onBack, tweaks }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
 
+  const contextLabel = form.jobFromAI && form.interests?.length
+    ? form.interests.slice(0, 3).join(", ")
+    : form.job || null;
+
   return (
     <section data-screen-label="02 플랜 선택" className="w-full max-w-[640px] mx-auto px-5 pb-44">
       <button onClick={onBack}
@@ -569,7 +571,9 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
         </div>
         <h2 className="text-[22px] leading-tight font-extrabold text-slate-900 tracking-tight">
           {form.grade} {form.season}<br />
-          <span className="text-[#5B6EF5]">너에게 맞는 5가지 활동</span>
+          <span className="text-[#5B6EF5]">
+            {contextLabel ? `${contextLabel}에 맞는 5가지 활동` : "너에게 맞는 5가지 활동"}
+          </span>
         </h2>
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {form.job && <Pill>{form.jobFromAI ? "✨ " : ""}{form.job}</Pill>}
@@ -581,7 +585,9 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
       {loading ? (
         <div className={`p-8 ${radius} border border-slate-200 bg-white flex flex-col items-center gap-3 my-6`}>
           <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 border-t-[#5B6EF5] animate-spin" />
-          <div className="text-[13px] font-semibold text-slate-700">너에게 맞는 활동을 고르는 중…</div>
+          <div className="text-[13px] font-semibold text-slate-700">
+            {contextLabel ? `${contextLabel}에 맞는 활동을 고르는 중…` : "너에게 맞는 활동을 고르는 중…"}
+          </div>
           <div className="text-[12px] text-slate-500">{form.grade} · {form.season}{form.job ? ` · ${form.job}` : ""}</div>
         </div>
       ) : (
@@ -682,7 +688,7 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
 // ───────────────────────────────────────────────────────
 // Step 3 — 결과
 // ───────────────────────────────────────────────────────
-function JobSection({ radius, job, season }) {
+function JobSection({ radius, job, interests, season }) {
   const [state, setState] = useState("loading"); // loading | success | error
   const [jobs, setJobs] = useState([]);
 
@@ -694,55 +700,92 @@ function JobSection({ radius, job, season }) {
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
-    let targetYear, monthRange, seasonKw;
+    let targetYear;
     if (season === "여름방학") {
       targetYear = currentMonth > 8 ? currentYear + 1 : currentYear;
-      monthRange = "7월 8월";
-      seasonKw = "여름";
     } else {
       targetYear = currentMonth > 2 ? currentYear + 1 : currentYear;
-      monthRange = "1월 2월";
-      seasonKw = "겨울";
     }
 
-    // 방학 3개월 전 ~ 방학 마지막날 윈도우
-    // 검색 기간: 지금 ~ 방학 마지막날
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const vacationEnd = season === "여름방학"
-      ? new Date(targetYear, 7, 31)  // 8월 31일
-      : new Date(targetYear, 1, 28); // 2월 28일
+      ? new Date(targetYear, 7, 31)
+      : new Date(targetYear, 1, 28);
 
-    const pad = (n) => String(n).padStart(2, "0");
-    const tbs = [
-      "cdr:1",
-      `cd_min:${pad(today.getMonth() + 1)}/${pad(today.getDate())}/${today.getFullYear()}`,
-      `cd_max:${pad(vacationEnd.getMonth() + 1)}/${pad(vacationEnd.getDate())}/${vacationEnd.getFullYear()}`,
-    ].join(",");
-
-    // 지정된 플랫폼에서만 검색
     const sites = [
       "site:linkareer.com",
       "site:allforyoung.com",
       "site:thinkcontest.com",
     ].join(" OR ");
-    const jobKw = job || "대학생";
-    const query = `(${sites}) ${jobKw} ${seasonKw}방학 ${monthRange} ${targetYear}`;
 
+    // ① Claude로 검색 키워드 생성
+    const fieldHint = interests?.[0] || job || "대학생";
+    let searchKeywords = [fieldHint];
     try {
-      const res = await fetch("/api/serper/search", {
+      const kwRes = await fetch("/api/anthropic/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q: query, gl: "kr", hl: "ko", num: 10, tbs }),
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 256,
+          system: "You are a Korean job search keyword generator. Respond with only valid JSON, no markdown.",
+          messages: [{
+            role: "user",
+            content: `분야: "${fieldHint}"\n이 분야의 대학생 공모전·인턴·서포터즈·교육 프로그램을 검색할 때 쓸 한국어 키워드 4개를 생성해줘. 짧고 검색에 잘 걸리는 단어로.\n{"keywords":["키워드1","키워드2","키워드3","키워드4"]}`,
+          }],
+        }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const organic = data?.organic || [];
+      if (kwRes.ok) {
+        const kwData = await kwRes.json();
+        const raw = kwData?.content?.[0]?.text || "";
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (match) {
+          const parsed = JSON.parse(match[0]);
+          if (Array.isArray(parsed?.keywords) && parsed.keywords.length > 0) {
+            searchKeywords = parsed.keywords.slice(0, 4);
+          }
+        }
+      }
+    } catch (_) { /* Claude 실패 시 fieldHint 그대로 사용 */ }
+
+    // ② Serper 검색 — tbs 제거, 날짜 필터는 JS에서 처리
+    const kwOr = searchKeywords.join(" OR ");
+    const query = `(${sites}) (${kwOr}) 대학생 모집`;
+
+    try {
+      // 페이지 10개 병렬 요청 (num:10 × 10 = 최대 100건)
+      const pages = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => i + 1).map((page) =>
+          fetch("/api/serper/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ q: query, gl: "kr", hl: "ko", num: 10, page }),
+          }).then((r) => r.ok ? r.json() : { organic: [] }).catch(() => ({ organic: [] }))
+        )
+      );
+      const organic = pages.flatMap((d) => d?.organic || []);
+
+      console.log(`[JobSection] 검색 쿼리: ${query}`);
+      console.log(`[JobSection] Serper 원본 결과 (${organic.length}건):`, organic.map((r, i) => ({
+        index: i,
+        title: r.title,
+        link: r.link,
+        snippet: r.snippet,
+        date: r.date,
+      })));
+
+      // 상시 모집 판별
+      const isAlwaysOpen = (title, snippet) => {
+        const text = (title + " " + snippet).replace(/\s/g, "");
+        return /상시모집|상시채용|상시접수|수시모집|수시채용|상시지원/.test(text);
+      };
 
       // 날짜 파싱 + 기간 필터
       const withMeta = organic.map((r) => {
         const postedDate = parseSerperDate(r.date);
         const deadlineDate = parseDeadline(r.title + " " + (r.snippet || ""));
+        const alwaysOpen = isAlwaysOpen(r.title, r.snippet || "");
         let orgName = "";
         try { orgName = new URL(r.link).hostname.replace(/^www\./, ""); } catch (_) {}
         return {
@@ -753,11 +796,16 @@ function JobSection({ radius, job, season }) {
           date: r.date || null,
           postedDate,
           deadlineDate,
+          alwaysOpen,
           tag: detectTag(r.title + " " + (r.snippet || "")),
         };
       }).filter((r) => {
+        // 상시 모집은 날짜 필터 무조건 통과
+        if (r.alwaysOpen) return true;
         // 마감일이 파싱됐고 오늘보다 이전이면 제거
         if (r.deadlineDate && r.deadlineDate < today) return false;
+        // 마감일을 파싱할 수 없으면 제거 (만료 여부 확인 불가)
+        if (!r.deadlineDate) return false;
         // 게시일이 방학 마감 이후면 제거
         if (r.postedDate && r.postedDate > vacationEnd) return false;
         return true;
@@ -772,8 +820,61 @@ function JobSection({ radius, job, season }) {
         return true;
       });
 
-      setJobs(deduped.slice(0, 6));
-      setState(deduped.length === 0 ? "empty" : "success");
+      console.log(`[JobSection] 날짜 필터 + 중복 제거 후 (${deduped.length}건):`, deduped.map((r, i) => ({
+        index: i,
+        title: r.title,
+        link: r.link,
+        alwaysOpen: r.alwaysOpen,
+        deadlineDate: r.deadlineDate?.toISOString().slice(0, 10) ?? null,
+      })));
+
+      if (deduped.length === 0) { setState("empty"); return; }
+
+      // ③ Claude가 관련성 판단 (상시 모집은 판단 대상에서 제외하고 무조건 포함)
+      const alwaysOpenItems = deduped.filter((r) => r.alwaysOpen);
+      const candidateItems  = deduped.filter((r) => !r.alwaysOpen);
+
+      let aiFiltered = candidateItems;
+      if (candidateItems.length > 0) {
+        try {
+          const listText = candidateItems.map((r, i) =>
+            `[${i}] 제목: ${r.title}\n    내용: ${r.snippet}`
+          ).join("\n");
+          const relRes = await fetch("/api/anthropic/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 256,
+              system: "You are a Korean job listing relevance judge. Respond with only valid JSON.",
+              messages: [{
+                role: "user",
+                content:
+                  `관심 분야: "${fieldHint}"\n검색 키워드: ${searchKeywords.join(", ")}\n\n아래 공고 목록 중 이 분야와 실제로 관련 있는 공고의 인덱스 번호만 골라줘.\n` +
+                  `단순 키워드 매칭이 아니라 공고 내용과 분야의 실질적 연관성을 판단해.\n\n${listText}\n\n{"relevant":[0,1,2]}`,
+              }],
+            }),
+          });
+          if (relRes.ok) {
+            const relData = await relRes.json();
+            const raw = relData?.content?.[0]?.text || "";
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (match) {
+              const parsed = JSON.parse(match[0]);
+              if (Array.isArray(parsed?.relevant) && parsed.relevant.length > 0) {
+                aiFiltered = parsed.relevant
+                  .filter((i) => typeof i === "number" && i >= 0 && i < candidateItems.length)
+                  .map((i) => candidateItems[i]);
+              }
+            }
+          }
+        } catch (_) { /* 실패 시 candidateItems 전체 사용 */ }
+      }
+
+      // 상시 모집 먼저, 이후 AI 선별 결과
+      const final = [...alwaysOpenItems, ...aiFiltered];
+      setJobs(final.slice(0, 6));
+      setState(final.length === 0 ? "empty" : "success");
     } catch (err) {
       console.error("[Serper] 공고 조회 실패:", err);
       setState("error");
@@ -813,13 +914,16 @@ function JobSection({ radius, job, season }) {
                className={`block p-4 ${radius} border border-slate-200 bg-white hover:border-[#5B6EF5] hover:shadow-sm transition-all`}>
               <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                 <Pill color="yellow">{j.tag}</Pill>
-                {daysLeft !== null && daysLeft <= 7 && (
+                {j.alwaysOpen && (
+                  <span className="text-[11px] font-bold text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full">상시모집</span>
+                )}
+                {!j.alwaysOpen && daysLeft !== null && daysLeft <= 7 && (
                   <span className="text-[11px] font-bold text-rose-500">D-{daysLeft}</span>
                 )}
-                {daysLeft !== null && daysLeft > 7 && (
+                {!j.alwaysOpen && daysLeft !== null && daysLeft > 7 && (
                   <span className="text-[11px] font-semibold text-emerald-600">모집 중</span>
                 )}
-                {fmtDeadline && (
+                {!j.alwaysOpen && fmtDeadline && (
                   <span className="text-[11px] text-slate-400 ml-auto">마감 {fmtDeadline}</span>
                 )}
               </div>
@@ -862,6 +966,7 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
   const [schedule, setSchedule] = useState(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [examInfo, setExamInfo] = useState(null);
 
   const handleExportPDF = () => {
     if (!schedule) return;
@@ -907,9 +1012,42 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
     const fetchSchedule = async () => {
       setScheduleLoading(true);
       const jobLine = form.job ? `희망 직무: ${form.job}` : "희망 직무: 미정";
+
+      // 방학 기간 계산
+      const now = new Date(); now.setHours(0,0,0,0);
+      const cy = now.getFullYear(); const cm = now.getMonth() + 1;
+      const fmt = (d) => `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}.${String(d.getDate()).padStart(2,"0")}`;
+
+      let vacStart, vacEnd;
+      if (form.season === "여름방학") {
+        const y = cm > 8 ? cy + 1 : cy;
+        vacStart = new Date(y, 6, 1);   // 7월 1일
+        vacEnd   = new Date(y, 7, 31);  // 8월 31일
+      } else {
+        const y = cm > 2 ? cy + 1 : cy;
+        const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+        vacStart = new Date(y, 0, 1);              // 1월 1일
+        vacEnd   = new Date(y, 1, leap ? 29 : 28); // 2월 말
+      }
+      // 후반부 = 방학 전체 기간의 후반 절반 시작일
+      const totalDays = Math.round((vacEnd - vacStart) / 86400000);
+      const vacMid = new Date(vacStart.getTime() + Math.floor(totalDays / 2) * 86400000);
+
+      const vacStartStr = fmt(vacStart);
+      const vacMidStr   = fmt(vacMid);
+      const vacEndStr   = fmt(vacEnd);
+
       const certLine = plan.isCert
-        ? `\n이 활동은 자격증·어학 시험 준비야. 한국의 실제 시험 접수·응시 일정을 기준으로 시험일에서 역산해서 주차별 준비 일정을 만들어줘. 예시 구성: 개념 학습 → 문제풀이 → 기출 모의고사 → 최종 점검 순서로.\n`
+        ? `\n이 활동은 자격증·어학 시험 준비야. 방학 기간은 ${vacStartStr} ~ ${vacEndStr}이고, 1주차 시작일은 ${vacStartStr}이야.\n` +
+          `한국의 실제 시험 일정 중 방학 후반부(${vacMidStr} ~ ${vacEndStr}) 안에 시험일이 있는 경우를 목표로, 시험일에서 역산해서 주차별 준비 일정을 만들어줘. 예시 구성: 개념 학습 → 문제풀이 → 기출 모의고사 → 최종 점검 순서로.\n`
         : "";
+      const examLine = plan.isCert
+        ? `- 각 주차에 startDate(YYYY.MM.DD) 필드를 포함해줘. 1주차 startDate는 ${vacStartStr}.\n` +
+          `- examInfo: 시험일(examDate)이 반드시 방학 후반부(${vacMidStr} ~ ${vacEndStr}) 범위 안에 있어야 해. 범위 밖이면 examInfo 필드 생략. (name, registrationPeriod, examDate, resultDate, note 필드, 날짜는 YYYY.MM.DD 형식)\n`
+        : "";
+      const schemaLine = plan.isCert
+        ? `{"examInfo":{"name":"시험명","registrationPeriod":"YYYY.MM.DD ~ YYYY.MM.DD","examDate":"YYYY.MM.DD","resultDate":"YYYY.MM.DD","note":"참고사항"},"weeks":[{"week":1,"startDate":"YYYY.MM.DD","label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`
+        : `{"weeks":[{"week":1,"label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`;
       const prompt =
         `${form.grade} 학생의 ${form.season} 방학, 선택한 활동: "${plan.title}" (예상 기간: ${plan.duration || "미정"}).\n` +
         `${jobLine}${certLine}\n` +
@@ -917,8 +1055,9 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
         `- 활동 특성에 맞는 주 수를 자유롭게 정해 (무조건 8주 채우지 말 것)\n` +
         `- 자격증·어학처럼 방학을 넘기는 경우 솔직하게 주 수를 늘려도 됨\n` +
         `- 각 주차마다 label(주제)과 tasks(3개 내외 구체적 할 일)를 써줘\n` +
+        examLine +
         `JSON 형식으로만 답변:\n` +
-        `{"weeks":[{"week":1,"label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`;
+        schemaLine;
 
       try {
         const res = await fetch("/api/anthropic/v1/messages", {
@@ -939,6 +1078,14 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (!Array.isArray(parsed?.weeks) || parsed.weeks.length === 0) throw new Error("invalid weeks");
         setSchedule(parsed.weeks);
+        if (parsed.examInfo) {
+          // examDate가 방학 후반부(vacMid ~ vacEnd) 범위인지 프론트에서도 검증
+          const parseD = (s) => { if (!s) return null; const d = new Date(s.replace(/\./g, "-")); return isNaN(d) ? null : d; };
+          const examDate = parseD(parsed.examInfo.examDate);
+          if (examDate && examDate >= vacMid && examDate <= vacEnd) {
+            setExamInfo(parsed.examInfo);
+          }
+        }
       } catch (err) {
         console.error("[Claude API] 일정 생성 실패:", err);
         setSchedule(FALLBACK_SCHEDULE);
@@ -998,6 +1145,69 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
         </div>
       </div>
 
+      {/* 자격증 시험 일정 카드 */}
+      {plan.isCert && !scheduleLoading && !examInfo && (
+        <div className={`p-4 ${radius} mb-5 border border-dashed border-amber-200 bg-amber-50 text-center`}>
+          <div className="text-xl mb-1">📋</div>
+          <div className="text-[13px] font-semibold text-amber-800">
+            {form.season} 기간 내 해당 시험 일정이 없어요
+          </div>
+          <div className="text-[11.5px] text-amber-600 mt-0.5">방학 이후 일정을 확인해보세요.</div>
+        </div>
+      )}
+      {plan.isCert && examInfo && (() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const parseDateStr = (s) => { if (!s) return null; const d = new Date(s.replace(/\./g, "-")); return isNaN(d) ? null : d; };
+        const examDate = parseDateStr(examInfo.examDate);
+        const dDay = examDate ? Math.ceil((examDate - today) / 86400000) : null;
+        return (
+          <div className={`p-4 ${radius} mb-5 border-2 border-amber-200 bg-amber-50`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-base">📋</span>
+                <span className="text-[13px] font-extrabold text-amber-900">시험 일정</span>
+                <span className="text-[12px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{examInfo.name}</span>
+              </div>
+              {dDay !== null && (
+                <span className={`text-[12px] font-extrabold px-2.5 py-1 rounded-full ${
+                  dDay <= 7 ? "bg-rose-100 text-rose-600" :
+                  dDay <= 30 ? "bg-orange-100 text-orange-600" :
+                  "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {dDay > 0 ? `D-${dDay}` : dDay === 0 ? "D-Day" : "시험 종료"}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {examInfo.registrationPeriod && (
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span className="text-slate-400 w-16 shrink-0">접수 기간</span>
+                  <span className="font-semibold text-slate-700">{examInfo.registrationPeriod}</span>
+                </div>
+              )}
+              {examInfo.examDate && (
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span className="text-slate-400 w-16 shrink-0">시험일</span>
+                  <span className="font-extrabold text-amber-800">{examInfo.examDate}</span>
+                </div>
+              )}
+              {examInfo.resultDate && (
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span className="text-slate-400 w-16 shrink-0">결과 발표</span>
+                  <span className="font-semibold text-slate-700">{examInfo.resultDate}</span>
+                </div>
+              )}
+              {examInfo.note && (
+                <div className="mt-1.5 text-[11.5px] text-amber-700 bg-amber-100 rounded-lg px-3 py-2 leading-relaxed">
+                  {examInfo.note}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 주차별 일정 */}
       <div className="mb-7">
         <div className="flex items-center justify-between mb-4">
@@ -1048,7 +1258,7 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
 
       {/* 공고 섹션 */}
       <div className="mb-8">
-        <JobSection radius={radius} job={form.job} season={form.season} />
+        <JobSection radius={radius} job={form.job} interests={form.interests} season={form.season} />
       </div>
 
       {/* 다시 선택 */}
