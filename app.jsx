@@ -478,17 +478,57 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
 
   const canSubmit = interests.length > 0 || freeText.trim().length > 0;
 
-  const requestSuggestions = () => {
+  const requestSuggestions = async () => {
     setPhase("loading");
-    // TODO: Claude API 호출 — 관심사/성향 → 직무 3개 추천
-    // const res = await anthropic.messages.create({
-    //   model: "claude-haiku-4-5",
-    //   messages: [{ role:"user", content: `관심사: ${interests.join(", ")}\n자유입력: ${freeText}\n→ 어울리는 직무 3개를 JSON으로 추천해줘` }],
-    // });
-    setTimeout(() => {
+
+    const interestsText = interests.length > 0 ? interests.join(", ") : "(없음)";
+    const freeTextSafe = freeText.trim() || "(없음)";
+    const grade = form.grade || "미지정";
+    const season = form.season || "미지정";
+
+    const userPrompt =
+      `관심사: ${interestsText}\n` +
+      `추가 설명: ${freeTextSafe}\n` +
+      `학년: ${grade}, 방학: ${season}\n` +
+      `아래 형식으로 직무 3개를 추천해줘.\n` +
+      `{\n` +
+      `  "jobs": [\n` +
+      `    {\n` +
+      `      "title": "직무명",\n` +
+      `      "emoji": "이모지",\n` +
+      `      "reason": "추천 이유 한 문장",\n` +
+      `      "skills": ["스킬1", "스킬2", "스킬3"]\n` +
+      `    }\n` +
+      `  ]\n` +
+      `}`;
+
+    try {
+      const res = await fetch("/api/anthropic/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1024,
+          system:
+            "당신은 대학생 진로 컨설턴트입니다.\n" +
+            "학생의 관심사와 성향을 보고 잘 맞는 직무 3개를 추천해주세요.\n" +
+            "반드시 JSON만 반환하고 다른 텍스트는 절대 포함하지 마세요.",
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const text = data?.content?.[0]?.text || "";
+      const parsed = JSON.parse(text);
+      const jobs = parsed?.jobs;
+      if (!Array.isArray(jobs) || jobs.length === 0) throw new Error("invalid jobs payload");
+      setSuggestions(jobs);
+      setPhase("suggested");
+    } catch (err) {
+      console.warn("[Claude API] 직무 추천 호출 실패 — 더미 데이터로 폴백:", err);
       setSuggestions(JOB_SUGGESTIONS_BY_KEY.default);
       setPhase("suggested");
-    }, 1400);
+    }
   };
 
   const handleConfirm = () => {
