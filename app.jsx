@@ -171,7 +171,7 @@ const Header = ({ step, hasJobSuggest }) => {
     <header className="w-full max-w-[640px] mx-auto px-5 pt-6 pb-3 flex items-center justify-between">
       <div className="flex items-center gap-2">
         <div>
-          <div className="text-[15px] font-bold tracking-tight text-slate-900">방학 뭐하지?</div>
+          <div className="text-[15px] font-bold tracking-tight text-slate-900">방학에 뭐하지?</div>
           <div className="text-[11px] text-slate-500 -mt-0.5">대학생 방학 플랜 추천</div>
         </div>
       </div>
@@ -204,7 +204,7 @@ function StepInput({ form, setForm, onNext, tweaks, apiError, onDismissError }) 
     <section data-screen-label="01 입력" className="w-full max-w-[640px] mx-auto px-5 pb-32">
       {apiError && (
         <div className={`mt-4 mb-2 p-3.5 ${radius} bg-rose-50 border border-rose-200 flex items-start gap-2.5`}>
-          <span className="shrink-0 text-[16px]">⚠️</span>
+          <span className="shrink-0 text-[16px] leading-none mt-[1px]">⚠️</span>
           <div className="flex-1 text-[13px] font-semibold text-rose-700 leading-snug">{apiError}</div>
           <button onClick={onDismissError} className="shrink-0 text-rose-300 hover:text-rose-500 text-[16px] leading-none">✕</button>
         </div>
