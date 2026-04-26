@@ -69,13 +69,34 @@ function sanitizeJob(s) {
   return (s || "").replace(/[<>{}[\]\\`$|;]/g, "").slice(0, 50);
 }
 
-// 관심사 / 성향 칩 (다중 선택)
-const INTEREST_CHIPS = [
-  "사람 만나는 거", "혼자 집중", "창의적인 작업", "논리·분석",
-  "숫자·데이터", "디자인", "글쓰기", "코딩",
-  "기획", "마케팅·광고", "사진·영상", "창업",
-  "가르치기", "리더 역할", "외국어", "여행",
+// 관심사 칩 — 카테고리별 구조
+const INTEREST_CATEGORIES = [
+  {
+    label: "💻 IT · 개발",
+    chips: ["개발·프로그래밍", "데이터 분석", "AI·머신러닝", "클라우드·인프라"],
+  },
+  {
+    label: "🎨 디자인 · 미디어",
+    chips: ["UI/UX 디자인", "그래픽·브랜딩", "영상·모션", "제품 기획"],
+  },
+  {
+    label: "📊 경영 · 마케팅",
+    chips: ["마케팅·광고", "브랜드·콘텐츠", "경영·전략", "창업·스타트업"],
+  },
+  {
+    label: "💰 금융 · 법무",
+    chips: ["금융·투자", "회계·재무", "법률·행정", "공공·정책"],
+  },
+  {
+    label: "📚 인문 · 사회",
+    chips: ["교육·강의", "언론·저널리즘", "심리·상담", "사회복지"],
+  },
+  {
+    label: "⚙️ 이공계 · 기타",
+    chips: ["기계·전기", "화학·바이오", "건축·인테리어", "의료·보건"],
+  },
 ];
+const INTEREST_CHIPS = INTEREST_CATEGORIES.flatMap((c) => c.chips);
 
 // 관심사 → 추천 직무 더미 매핑 (실제론 Claude가 생성)
 const JOB_SUGGESTIONS_BY_KEY = {
@@ -208,10 +229,6 @@ const Header = ({ step, hasJobSuggest }) => {
   return (
     <header className="w-full max-w-[640px] mx-auto px-5 pt-6 pb-3 flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-lg font-bold"
-             style={{ background: "linear-gradient(135deg,#5B6EF5,#7C8DF8)" }}>
-          ☀
-        </div>
         <div>
           <div className="text-[15px] font-bold tracking-tight text-slate-900">방학 뭐하지?</div>
           <div className="text-[11px] text-slate-500 -mt-0.5">대학생 방학 플랜 추천</div>
@@ -447,25 +464,35 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks, onQuotaExceeded
 
           {/* 관심사 칩 */}
           <div className="mb-6">
-            <label className="block text-[13px] font-semibold text-slate-700 mb-2.5">
-              이런 게 좋아요 <span className="text-slate-400 font-normal">(여러 개 선택 가능)</span>
+            <label className="block text-[13px] font-semibold text-slate-700 mb-3">
+              관심 분야 <span className="text-slate-400 font-normal">(여러 개 선택 가능)</span>
             </label>
-            <div className="flex flex-wrap gap-2">
-              {INTEREST_CHIPS.map((c) => {
-                const active = interests.includes(c);
-                return (
-                  <button key={c}
-                    onClick={() => toggleInterest(c)}
-                    className={`px-3.5 py-2 text-[13px] font-medium border-2 rounded-full transition-all ${
-                      active
-                        ? "border-[#5B6EF5] text-[#5B6EF5]"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                    }`}
-                    style={active ? { backgroundColor: "rgba(91,110,245,0.08)" } : {}}>
-                    {active && <span className="mr-1">✓</span>}{c}
-                  </button>
-                );
-              })}
+            <div className="flex flex-col gap-2.5">
+              {INTEREST_CATEGORIES.map((cat) => (
+                <div key={cat.label} className="flex items-center gap-2.5">
+                  <span className="shrink-0 text-[11px] font-semibold text-slate-400 w-[84px] text-right leading-tight">
+                    {cat.label}
+                  </span>
+                  <div className="w-px self-stretch bg-slate-200 shrink-0" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {cat.chips.map((c) => {
+                      const active = interests.includes(c);
+                      return (
+                        <button key={c}
+                          onClick={() => toggleInterest(c)}
+                          className={`px-3 py-1.5 text-[12px] font-medium border-2 rounded-full transition-all ${
+                            active
+                              ? "border-[#5B6EF5] text-[#5B6EF5]"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                          }`}
+                          style={active ? { backgroundColor: "rgba(91,110,245,0.08)" } : {}}>
+                          {active && <span className="mr-1">✓</span>}{c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -888,7 +915,7 @@ function JobSection({ radius, job, season }) {
   );
 }
 
-function StepResult({ form, plan, onRestart, tweaks }) {
+function StepResult({ form, plan, onBack, onRestart, tweaks }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
   const [schedule, setSchedule] = useState(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
@@ -937,9 +964,12 @@ function StepResult({ form, plan, onRestart, tweaks }) {
     const fetchSchedule = async () => {
       setScheduleLoading(true);
       const jobLine = form.job ? `희망 직무: ${form.job}` : "희망 직무: 미정";
+      const certLine = plan.isCert
+        ? `\n이 활동은 자격증·어학 시험 준비야. 한국의 실제 시험 접수·응시 일정을 기준으로 시험일에서 역산해서 주차별 준비 일정을 만들어줘. 예시 구성: 개념 학습 → 문제풀이 → 기출 모의고사 → 최종 점검 순서로.\n`
+        : "";
       const prompt =
         `${form.grade} 학생의 ${form.season} 방학, 선택한 활동: "${plan.title}" (예상 기간: ${plan.duration || "미정"}).\n` +
-        `${jobLine}\n\n` +
+        `${jobLine}${certLine}\n` +
         `이 활동을 실천하는 방학 주차별 일정을 만들어줘.\n` +
         `- 활동 특성에 맞는 주 수를 자유롭게 정해 (무조건 8주 채우지 말 것)\n` +
         `- 자격증·어학처럼 방학을 넘기는 경우 솔직하게 주 수를 늘려도 됨\n` +
@@ -978,6 +1008,15 @@ function StepResult({ form, plan, onRestart, tweaks }) {
 
   return (
     <section data-screen-label="03 결과" className="w-full max-w-[640px] mx-auto px-5 pb-24">
+
+      {/* 뒤로가기 */}
+      <button onClick={onBack}
+              className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-500 hover:text-slate-800 transition-colors mb-4 -ml-1">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        활동 다시 고르기
+      </button>
 
       {/* 히어로 카드 */}
       <div className={`p-5 ${radius} mb-6 text-white relative overflow-hidden`}
@@ -1121,15 +1160,21 @@ function App() {
 
     const jobLine = formSnapshot.job ? `희망 직무: ${formSnapshot.job}` : "희망 직무: 미정";
     const intensity = LEVEL_INTENSITY[lv + 2];
+    const vacationMonths = formSnapshot.season === "여름방학" ? "7월~8월" : "1월~2월";
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
     const prompt =
       `대학생 진로 컨설턴트로서 아래 학생에게 이번 방학에 도전할 구체적인 활동 5가지를 추천해줘.\n` +
-      `학년: ${formSnapshot.grade}, 방학: ${formSnapshot.season}, ${jobLine}\n` +
+      `학년: ${formSnapshot.grade}, 방학: ${formSnapshot.season} (${vacationMonths}), ${jobLine}\n` +
+      `오늘 날짜: ${todayStr}\n` +
       `활동 강도: ${intensity} 수준\n\n` +
       `- 각 활동은 "토익 950점 달성", "Figma 포트폴리오 3개 제작"처럼 구체적이고 실천 가능해야 해\n` +
       `- title은 짧고 명확하게, tagline은 2줄로 (\\n 구분), desc는 한 문장\n` +
       `- duration은 현실적인 예상 기간 (예: "6-8주", "8-12주")\n` +
+      `- isCert는 자격증·어학 시험 준비 활동이면 true, 아니면 false\n` +
+      `- 자격증 활동의 경우: 한국의 실제 시험 일정 기준으로 방학 기간(${vacationMonths}) 내에 응시 가능하고 최소 4주 이상 준비할 수 있는 경우만 포함해. 준비 기간이 부족하면 해당 자격증은 제외하고 다른 활동으로 대체해.\n` +
       `반드시 아래 JSON 형식으로만 답변해. 다른 텍스트 절대 포함하지 마.\n` +
-      `{"activities":[{"id":"a1","emoji":"이모지","title":"활동명","tagline":"첫줄\\n둘째줄","desc":"설명 한 문장","duration":"예상 기간"}]}`;
+      `{"activities":[{"id":"a1","emoji":"이모지","title":"활동명","tagline":"첫줄\\n둘째줄","desc":"설명 한 문장","duration":"예상 기간","isCert":false}]}`;
 
     try {
       const res = await fetch("/api/anthropic/v1/messages", {
@@ -1230,6 +1275,7 @@ function App() {
       )}
       {step === "result" && plan && (
         <StepResult form={form} plan={plan} tweaks={tweaks}
+                    onBack={() => setStep("direction")}
                     onRestart={() => { setStep("input"); setSelectedPlan(null); }} />
       )}
 
