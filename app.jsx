@@ -5,8 +5,6 @@ const { useState, useEffect, useMemo } = React;
 // Tweakable defaults (persisted via host)
 // ───────────────────────────────────────────────────────
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "cardLayout": "grid",
-  "accentStyle": "filled",
   "showEmoji": true,
   "cornerRadius": "rounded",
   "demoStep": "auto"
@@ -43,41 +41,37 @@ const INTEREST_CATEGORIES = [
   { label: "📚 인문 · 사회",     chips: ["교육·강의", "언론·저널리즘", "심리·상담", "사회복지"] },
   { label: "⚙️ 이공계 · 기타",  chips: ["기계·전기", "화학·바이오", "건축·인테리어", "의료·보건"] },
 ];
-const INTEREST_CHIPS = INTEREST_CATEGORIES.flatMap((c) => c.chips);
-
-// 관심사 → 추천 직무 더미 매핑 (실제론 Claude가 생성)
-const JOB_SUGGESTIONS_BY_KEY = {
-  default: [
-    {
-      title: "UX 기획자",
-      emoji: "🧩",
-      reason: "사람 관찰과 논리적 구조화를 좋아하는 성향에 잘 맞아요.",
-      skills: ["리서치", "와이어프레임", "데이터 해석"],
-    },
-    {
-      title: "콘텐츠 마케터",
-      emoji: "✍️",
-      reason: "창의적 표현과 사람 반응을 보는 걸 좋아하는 분께 추천.",
-      skills: ["카피라이팅", "SNS 운영", "퍼포먼스"],
-    },
-    {
-      title: "데이터 분석가",
-      emoji: "📊",
-      reason: "숫자·논리·패턴 찾기를 즐긴다면 강점을 살릴 수 있어요.",
-      skills: ["SQL", "통계", "시각화"],
-    },
-  ],
-};
 
 const LEVEL_LABELS = ["아주 가볍게", "가볍게", "보통", "빡세게", "아주 빡세게"];
 
-// Claude API 실패 시 주차별 일정 폴백
-const FALLBACK_SCHEDULE = [
-  { week: 1, label: "준비 & 기초 학습", tasks: ["목표 구체화 및 계획 수립", "필요한 도구·자료 세팅", "기초 개념 및 레퍼런스 수집"] },
-  { week: 2, label: "본격 실행 시작", tasks: ["첫 번째 핵심 과제 착수", "데일리 루틴 확립", "중간 점검 기준 정하기"] },
-  { week: 3, label: "집중 실행", tasks: ["핵심 과제 중반부 진행", "막히는 부분 보완 학습", "진행 상황 기록"] },
-  { week: 4, label: "마무리 & 정리", tasks: ["최종 결과물 완성", "회고 및 다음 단계 계획", "포트폴리오·이력서 업데이트"] },
-];
+// ── 보안 유틸리티 ──────────────────────────────────────
+const RATE_WINDOW_MS = 60_000; // 1분 윈도우
+const RATE_MAX_CALLS = 8;      // 분당 최대 8회 Claude 호출
+
+function checkRateLimit() {
+  const now = Date.now();
+  try {
+    const stored = JSON.parse(localStorage.getItem("_aim_rl") || "[]");
+    const recent = stored.filter((t) => now - t < RATE_WINDOW_MS);
+    if (recent.length >= RATE_MAX_CALLS) return false;
+    localStorage.setItem("_aim_rl", JSON.stringify([...recent, now]));
+    return true;
+  } catch {
+    return true; // localStorage 접근 실패 시 허용
+  }
+}
+
+// HTML 태그, 백틱, 중괄호(JSON 인젝션), 제어문자 제거 후 길이 제한
+function sanitizeInput(text, maxLen = 200) {
+  if (!text) return "";
+  return String(text)
+    .replace(/<[^>]*>/g, "")        // HTML 태그 제거
+    .replace(/[`\\]/g, "")          // 백틱·백슬래시 제거
+    .replace(/[{}]/g, "")           // 중괄호 제거 (JSON/프롬프트 인젝션 방지)
+    .replace(/[\x00-\x1F\x7F]/g, "") // 제어문자 제거
+    .trim()
+    .slice(0, maxLen);
+}
 
 function detectTag(text) {
   if (/서포터즈/.test(text)) return "서포터즈";
@@ -198,7 +192,7 @@ const Header = ({ step, hasJobSuggest }) => {
 // ───────────────────────────────────────────────────────
 // Step 1 — 입력
 // ───────────────────────────────────────────────────────
-function StepInput({ form, setForm, onNext, tweaks }) {
+function StepInput({ form, setForm, onNext, tweaks, apiError, onDismissError }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
   const canNext = (form.job.trim() || form.unknownJob) && form.grade && form.season;
 
@@ -208,6 +202,13 @@ function StepInput({ form, setForm, onNext, tweaks }) {
 
   return (
     <section data-screen-label="01 입력" className="w-full max-w-[640px] mx-auto px-5 pb-32">
+      {apiError && (
+        <div className={`mt-4 mb-2 p-3.5 ${radius} bg-rose-50 border border-rose-200 flex items-start gap-2.5`}>
+          <span className="shrink-0 text-[16px]">⚠️</span>
+          <div className="flex-1 text-[13px] font-semibold text-rose-700 leading-snug">{apiError}</div>
+          <button onClick={onDismissError} className="shrink-0 text-rose-300 hover:text-rose-500 text-[16px] leading-none">✕</button>
+        </div>
+      )}
       <div className="mt-2 mb-7">
         <h1 className="text-[26px] leading-[1.25] font-extrabold text-slate-900 tracking-tight">
           이번 방학,<br />
@@ -229,6 +230,7 @@ function StepInput({ form, setForm, onNext, tweaks }) {
           disabled={form.unknownJob}
           onChange={(e) => setForm({ ...form, job: e.target.value })}
           placeholder="예: UX 기획자, 마케터 / 없으면 비워두세요"
+          maxLength={100}
           className={`w-full px-4 py-3.5 text-[14px] bg-white border-2 ${radius}
                       border-slate-200 focus:border-[#5B6EF5] focus:outline-none
                       placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400`}
@@ -307,7 +309,7 @@ function StepInput({ form, setForm, onNext, tweaks }) {
 // ───────────────────────────────────────────────────────
 // Step 1.5 — 직무 모르겠으면 관심사·성향 → AI 직무 제안
 // ───────────────────────────────────────────────────────
-function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
+function StepJobSuggest({ form, setForm, onNext, onBack, tweaks, onApiError }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
   const [interests, setInterests] = useState(form.interests || []);
   const [freeText, setFreeText] = useState(form.freeText || "");
@@ -324,8 +326,15 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
   const requestSuggestions = async () => {
     setPhase("loading");
 
-    const interestsText = interests.length > 0 ? interests.join(", ") : "(없음)";
-    const freeTextSafe = freeText.trim() || "(없음)";
+    if (!checkRateLimit()) {
+      onApiError("요청이 너무 많아요. 1분 후 다시 시도해주세요.");
+      return;
+    }
+
+    const interestsText = interests.length > 0
+      ? interests.map((i) => sanitizeInput(i, 50)).join(", ")
+      : "(없음)";
+    const freeTextSafe = sanitizeInput(freeText, 500) || "(없음)";
     const grade = form.grade || "미지정";
     const season = form.season || "미지정";
 
@@ -367,8 +376,7 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
       setPhase("suggested");
     } catch (err) {
       console.error("[Claude API] 직무 추천 실패:", err);
-      setSuggestions(JOB_SUGGESTIONS_BY_KEY.default);
-      setPhase("suggested");
+      onApiError("직무 추천을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
     }
   };
 
@@ -447,6 +455,7 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
               onChange={(e) => setFreeText(e.target.value)}
               rows={3}
               placeholder="예: 내향적이고 서비스 기획에 관심, 그림 그리고 음악 듣는 거 좋아해요"
+              maxLength={500}
               className={`w-full px-4 py-3 text-[14px] bg-white border-2 ${radius}
                           border-slate-200 focus:border-[#5B6EF5] focus:outline-none
                           placeholder:text-slate-400 resize-none`}
@@ -749,24 +758,43 @@ function JobSection({ radius, job, interests, season }) {
       }
     } catch (_) { /* Claude 실패 시 fieldHint 그대로 사용 */ }
 
-    // ② Serper 검색 — tbs 제거, 날짜 필터는 JS에서 처리
-    const kwOr = searchKeywords.join(" OR ");
-    const query = `(${sites}) (${kwOr}) 대학생 모집`;
+    // ② Serper 검색 — 현재 날짜 기준 과거 1년 ~ 오늘로 tbs 설정
+    const pad = (n) => String(n).padStart(2, "0");
+    const rangeStart = new Date(today); rangeStart.setFullYear(rangeStart.getFullYear() - 1);
+    const tbs = [
+      "cdr:1",
+      `cd_min:${pad(rangeStart.getMonth()+1)}/${pad(rangeStart.getDate())}/${rangeStart.getFullYear()}`,
+      `cd_max:${pad(today.getMonth()+1)}/${pad(today.getDate())}/${today.getFullYear()}`,
+    ].join(",");
 
-    try {
-      // 페이지 10개 병렬 요청 (num:10 × 10 = 최대 100건)
-      const pages = await Promise.all(
-        Array.from({ length: 10 }, (_, i) => i + 1).map((page) =>
+    const kwOr = searchKeywords.join(" OR ");
+    const queryGeneral  = `(${sites}) (${kwOr}) 대학생 모집`;
+    const queryAlways   = `(${sites}) (${kwOr}) 상시모집 OR 상시채용 OR 수시모집`;
+
+    const fetchPages = (q, pageCount) =>
+      Promise.all(
+        Array.from({ length: pageCount }, (_, i) => i + 1).map((page) =>
           fetch("/api/serper/search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ q: query, gl: "kr", hl: "ko", num: 10, page }),
+            body: JSON.stringify({ q, gl: "kr", hl: "ko", num: 10, page, tbs }),
           }).then((r) => r.ok ? r.json() : { organic: [] }).catch(() => ({ organic: [] }))
         )
       );
-      const organic = pages.flatMap((d) => d?.organic || []);
 
-      console.log(`[JobSection] 검색 쿼리: ${query}`);
+    try {
+      // 일반 쿼리 10페이지 + 상시모집 전용 쿼리 3페이지 병렬 실행
+      const [generalPages, alwaysPages] = await Promise.all([
+        fetchPages(queryGeneral, 10),
+        fetchPages(queryAlways, 3),
+      ]);
+      const organic = [
+        ...generalPages.flatMap((d) => d?.organic || []),
+        ...alwaysPages.flatMap((d) => d?.organic || []),
+      ];
+
+      console.log(`[JobSection] 검색 쿼리(일반): ${queryGeneral}`);
+      console.log(`[JobSection] 검색 쿼리(상시): ${queryAlways}`);
       console.log(`[JobSection] Serper 원본 결과 (${organic.length}건):`, organic.map((r, i) => ({
         index: i,
         title: r.title,
@@ -820,13 +848,13 @@ function JobSection({ radius, job, interests, season }) {
         return true;
       });
 
-      console.log(`[JobSection] 날짜 필터 + 중복 제거 후 (${deduped.length}건):`, deduped.map((r, i) => ({
-        index: i,
-        title: r.title,
-        link: r.link,
-        alwaysOpen: r.alwaysOpen,
-        deadlineDate: r.deadlineDate?.toISOString().slice(0, 10) ?? null,
-      })));
+      console.log(`[JobSection] 날짜 필터 + 중복 제거 후 (${deduped.length}건):`);
+      deduped.forEach((r, i) => {
+        console.log(`  [${i}] ${r.title}`);
+        console.log(`       링크: ${r.link}`);
+        console.log(`       마감: ${r.deadlineDate?.toISOString().slice(0, 10) ?? "null"} | 상시: ${r.alwaysOpen} | 태그: ${r.tag}`);
+        console.log(`       스니펫: ${r.snippet}`);
+      });
 
       if (deduped.length === 0) { setState("empty"); return; }
 
@@ -873,7 +901,7 @@ function JobSection({ radius, job, interests, season }) {
 
       // 상시 모집 먼저, 이후 AI 선별 결과
       const final = [...alwaysOpenItems, ...aiFiltered];
-      setJobs(final.slice(0, 6));
+      setJobs(final);
       setState(final.length === 0 ? "empty" : "success");
     } catch (err) {
       console.error("[Serper] 공고 조회 실패:", err);
@@ -962,7 +990,7 @@ function JobSection({ radius, job, interests, season }) {
   );
 }
 
-function StepResult({ form, plan, onBack, onRestart, tweaks }) {
+function StepResult({ form, plan, onBack, onRestart, tweaks, onApiError }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
   const [schedule, setSchedule] = useState(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
@@ -1011,7 +1039,16 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
   useEffect(() => {
     const fetchSchedule = async () => {
       setScheduleLoading(true);
-      const jobLine = form.job ? `희망 직무: ${form.job}` : "희망 직무: 미정";
+
+      if (!checkRateLimit()) {
+        onApiError("요청이 너무 많아요. 1분 후 다시 시도해주세요.");
+        return;
+      }
+
+      const safeJob = sanitizeInput(form.job, 100);
+      const safePlanTitle = sanitizeInput(plan.title, 100);
+      const safeDuration = sanitizeInput(plan.duration || "미정", 30);
+      const jobLine = safeJob ? `희망 직무: ${safeJob}` : "희망 직무: 미정";
 
       // 방학 기간 계산
       const now = new Date(); now.setHours(0,0,0,0);
@@ -1049,12 +1086,12 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
         ? `{"examInfo":{"name":"시험명","registrationPeriod":"YYYY.MM.DD ~ YYYY.MM.DD","examDate":"YYYY.MM.DD","resultDate":"YYYY.MM.DD","note":"참고사항"},"weeks":[{"week":1,"startDate":"YYYY.MM.DD","label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`
         : `{"weeks":[{"week":1,"label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`;
       const prompt =
-        `${form.grade} 학생의 ${form.season} 방학, 선택한 활동: "${plan.title}" (예상 기간: ${plan.duration || "미정"}).\n` +
+        `${form.grade} 학생의 ${form.season} 방학, 선택한 활동: "${safePlanTitle}" (예상 기간: ${safeDuration}).\n` +
         `${jobLine}${certLine}\n` +
         `이 활동을 실천하는 방학 주차별 일정을 만들어줘.\n` +
-        `- 활동 특성에 맞는 주 수를 자유롭게 정해 (무조건 8주 채우지 말 것)\n` +
+        `- 활동 특성에 맞는 주 수를 자유롭게 정해 (8주를 채우지 않아도 됨)\n` +
         `- 자격증·어학처럼 방학을 넘기는 경우 솔직하게 주 수를 늘려도 됨\n` +
-        `- 각 주차마다 label(주제)과 tasks(3개 내외 구체적 할 일)를 써줘\n` +
+        `- 각 주차마다 label(주제)과 tasks(2개 ~ 3개 내외 구체적 할 일)를 써줘\n` +
         examLine +
         `JSON 형식으로만 답변:\n` +
         schemaLine;
@@ -1088,7 +1125,7 @@ function StepResult({ form, plan, onBack, onRestart, tweaks }) {
         }
       } catch (err) {
         console.error("[Claude API] 일정 생성 실패:", err);
-        setSchedule(FALLBACK_SCHEDULE);
+        onApiError("주차별 일정을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
       } finally {
         setScheduleLoading(false);
       }
@@ -1287,6 +1324,13 @@ function App() {
     setStep(form.jobFromAI ? "jobSuggest" : "input");
   };
 
+  // API 에러
+  const [apiError, setApiError] = useState(null);
+  const handleApiError = (msg) => {
+    setApiError(msg);
+    setStep("input");
+  };
+
   // 추천 활동 5개 (AI 생성)
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -1305,7 +1349,14 @@ function App() {
     setPlans([]);
     setSelectedPlan(null);
 
-    const jobLine = formSnapshot.job ? `희망 직무: ${formSnapshot.job}` : "희망 직무: 미정";
+    if (!checkRateLimit()) {
+      handleApiError("요청이 너무 많아요. 1분 후 다시 시도해주세요.");
+      setPlansLoading(false);
+      return;
+    }
+
+    const safeJob = sanitizeInput(formSnapshot.job, 100);
+    const jobLine = safeJob ? `희망 직무: ${safeJob}` : "희망 직무: 미정";
     const intensity = LEVEL_INTENSITY[lv + 2];
     const vacationMonths = formSnapshot.season === "여름방학" ? "7월~8월" : "1월~2월";
     const today = new Date();
@@ -1334,7 +1385,11 @@ function App() {
           messages: [{ role: "user", content: prompt }],
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        console.error("[Claude API] 활동 생성 응답 오류 바디:", errBody);
+        throw new Error(`HTTP ${res.status}: ${errBody}`);
+      }
       const data = await res.json();
       const raw = data?.content?.[0]?.text || "";
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -1345,13 +1400,14 @@ function App() {
       setPlans(activities.map((a, i) => ({ ...a, ...ACTIVITY_COLORS[i % ACTIVITY_COLORS.length] })));
     } catch (err) {
       console.error("[Claude API] 활동 생성 실패:", err);
-      setPlans(FALLBACK_ACTIVITIES.map((a, i) => ({ ...a, ...ACTIVITY_COLORS[i] })));
+      handleApiError("활동 추천을 불러오지 못했어요. 잠시 후 다시 시도해주세요.");
     } finally {
       setPlansLoading(false);
     }
   };
 
   const goToDirection = () => {
+    setApiError(null);
     setLevel(0);
     setStep("direction");
     generatePlans(form, 0);
@@ -1405,12 +1461,14 @@ function App() {
 
       {step === "input" && (
         <StepInput form={form} setForm={setForm} tweaks={tweaks}
+                   apiError={apiError} onDismissError={() => setApiError(null)}
                    onNext={goAfterInputV2} />
       )}
       {step === "jobSuggest" && (
         <StepJobSuggest form={form} setForm={setForm} tweaks={tweaks}
                         onNext={goToDirection}
-                        onBack={() => setStep("input")} />
+                        onBack={() => setStep("input")}
+                        onApiError={handleApiError} />
       )}
       {step === "direction" && (
         <StepDirection form={form} plans={plans} loading={plansLoading}
@@ -1422,20 +1480,12 @@ function App() {
       {step === "result" && plan && (
         <StepResult form={form} plan={plan} tweaks={tweaks}
                     onBack={() => setStep("direction")}
-                    onRestart={() => { setStep("input"); setSelectedPlan(null); }} />
+                    onRestart={() => { setStep("input"); setSelectedPlan(null); }}
+                    onApiError={handleApiError} />
       )}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="레이아웃">
-          <TweakRadio
-            label="플랜 카드 배치"
-            value={tweaks.cardLayout}
-            onChange={(v) => setTweak("cardLayout", v)}
-            options={[
-              { value: "grid", label: "그리드 (2-2-1)" },
-              { value: "list", label: "리스트" },
-            ]}
-          />
           <TweakRadio
             label="모서리"
             value={tweaks.cornerRadius}
