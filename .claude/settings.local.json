@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(sed -n '1000,1010p' \"C:/Users/harmy/OneDrive/Desktop/영찬/CMUX AIM 해커톤/app.jsx\")",
+      "Bash(sed -n '1185,1270p' \"C:/Users/harmy/OneDrive/Desktop/영찬/CMUX AIM 해커톤/app.jsx\")",
+      "Bash(node --input-type=module)",
+      "Bash(npx vite *)"
     ]
   }
 }
