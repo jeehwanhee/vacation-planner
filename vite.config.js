@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const anthropicKey = env.CLAUDE_API_KEY || env.ANTHROPIC_API_KEY || '';
+  const apiKey = env.ANTHROPIC_API_KEY || '';
   const serperKey = env.SERPER_API_KEY || '';
 
   return {
@@ -18,8 +18,10 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api\/anthropic/, ''),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
-              if (anthropicKey) {
-                proxyReq.setHeader('x-api-key', anthropicKey);
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+              if (apiKey) {
+                proxyReq.setHeader('x-api-key', apiKey);
                 proxyReq.setHeader('anthropic-version', '2023-06-01');
               }
             });
@@ -31,6 +33,8 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api\/serper/, ''),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
               if (serperKey) {
                 proxyReq.setHeader('X-API-KEY', serperKey);
               }
