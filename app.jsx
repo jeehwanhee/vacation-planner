@@ -13,189 +13,23 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 // ───────────────────────────────────────────────────────
-// 5개 방향성 축 (골격) — 카드의 카피·구체 내용은 AI가 매번 생성
+// 5개 활동 카드 — AI가 생성, 아래는 API 실패 시 폴백용
 // ───────────────────────────────────────────────────────
-const PLAN_AXES = {
-  real:       { emoji: "🔥", name: "실전파",  tone: "from-rose-50 to-orange-50",   pill: "bg-rose-100 text-rose-700" },
-  basic:      { emoji: "📚", name: "기초파",  tone: "from-sky-50 to-indigo-50",    pill: "bg-sky-100 text-sky-700" },
-  experience: { emoji: "🌍", name: "경험파",  tone: "from-emerald-50 to-teal-50",  pill: "bg-emerald-100 text-emerald-700" },
-  spec:       { emoji: "💼", name: "스펙파",  tone: "from-amber-50 to-yellow-50",  pill: "bg-amber-100 text-amber-800" },
-  explore:    { emoji: "🛠️", name: "탐색파",  tone: "from-violet-50 to-fuchsia-50", pill: "bg-violet-100 text-violet-700" },
-};
-const AXIS_ORDER = ["real", "basic", "experience", "spec", "explore"];
+const ACTIVITY_COLORS = [
+  { tone: "from-rose-50 to-orange-50",    pill: "bg-rose-100 text-rose-700" },
+  { tone: "from-sky-50 to-indigo-50",     pill: "bg-sky-100 text-sky-700" },
+  { tone: "from-emerald-50 to-teal-50",   pill: "bg-emerald-100 text-emerald-700" },
+  { tone: "from-amber-50 to-yellow-50",   pill: "bg-amber-100 text-amber-800" },
+  { tone: "from-violet-50 to-fuchsia-50", pill: "bg-violet-100 text-violet-700" },
+];
 
-// 더미 추천 결과 — 학년별로 다른 카피 셋 (AI 응답 시뮬레이션)
-// 실제로는 form 입력값을 Claude에 보내고 받은 JSON이 들어갈 자리
-const PLAN_VARIANTS_BY_GRADE = {
-  "1학년": {
-    real: {
-      title: "첫 팀플 만들기",
-      tagline: "작은 사이드 프로젝트로\n첫 결과물 만들기",
-      desc: "처음이니까 부담 없이 — 학과 친구들과 4주짜리 미니 앱이나 캠페인부터.",
-      actions: ["교내 동아리 합류", "4주 미니 프로젝트", "친구 2명과 토이 앱"],
-    },
-    basic: {
-      title: "기본기 쌓기",
-      tagline: "전공 너머\n새 분야 입문 강의",
-      desc: "1학년의 가장 큰 무기는 시간. CS·디자인·마케팅 중 하나 골라 입문서.",
-      actions: ["인프런 입문 강의", "원서 1권 정독", "코드잇 무료 코스"],
-    },
-    experience: {
-      title: "넓게 경험하기",
-      tagline: "다양한 모임·활동에서\n시야 넓히기",
-      desc: "사람·환경·관점을 폭넓게 만나보기 좋은 시기예요.",
-      actions: ["연합 동아리 가입", "단기 봉사", "독서 모임"],
-    },
-    spec: {
-      title: "기초 자격 따기",
-      tagline: "컴활·한국사 같은\n기본 자격증 정리",
-      desc: "취업까지 시간 있으니 부담 없는 기초 자격부터 차근차근.",
-      actions: ["컴활 1급", "한국사 2급", "토익 1차 응시"],
-    },
-    explore: {
-      title: "관심사 탐색",
-      tagline: "여러 직무를\n가볍게 맛보기",
-      desc: "아직 진로 흐릿한 게 자연스러운 시기. 5개 직무 1주씩 체험.",
-      actions: ["직무 워크숍", "현직자 커피챗 3명", "MBTI 진로 매칭"],
-    },
-  },
-  "2학년": {
-    real: {
-      title: "교내 공모전 도전",
-      tagline: "팀 짜서\n공모전·해커톤 한 번",
-      desc: "한 학기 정도 굴려본 지금이 첫 외부 도전 적기예요.",
-      actions: ["교내 해커톤 참가", "팀 프로젝트 1건", "공모전 1회 출품"],
-    },
-    basic: {
-      title: "직무 기본기",
-      tagline: "관심 직무의\n기초 도구 익히기",
-      desc: "직무가 살짝 보이는 시기 — 그쪽 기본기를 단단히.",
-      actions: ["Figma 입문", "SQL 기초", "GA4 입문 강의"],
-    },
-    experience: {
-      title: "서포터즈 활동",
-      tagline: "기업 서포터즈로\n첫 외부 경험",
-      desc: "회사라는 환경을 미리 느껴보는 좋은 채널.",
-      actions: ["여름 서포터즈 모집", "대외활동 2개", "단기 인턴 탐색"],
-    },
-    spec: {
-      title: "어학 점수",
-      tagline: "토익·오픽으로\n어학 베이스 만들기",
-      desc: "3학년 되기 전에 어학을 끝내두면 마음이 편해져요.",
-      actions: ["토익 850+", "오픽 IM2+", "한국사 2급"],
-    },
-    explore: {
-      title: "방향 좁히기",
-      tagline: "관심 분야 2~3개\n비교해보기",
-      desc: "1학년보다는 좁게, 3학년보다는 열린 채로.",
-      actions: ["직무 인터뷰 5명", "분야별 사이드 1주씩", "현직자 멘토링"],
-    },
-  },
-  "3학년": {
-    real: {
-      title: "포트폴리오용 프로젝트",
-      tagline: "인턴 지원에 쓸\n실전 프로젝트",
-      desc: "방학 끝나고 바로 포트폴리오에 올릴 작품 1개를 끝내요.",
-      actions: ["MVP 프로젝트 4주", "외부 공모전 결선", "사이드 매칭"],
-    },
-    basic: {
-      title: "실무 도구 숙련",
-      tagline: "현업이 쓰는\n도구·스택 깊게",
-      desc: "이젠 입문이 아니라 숙련. 면접에서 쓸 수 있을 만큼.",
-      actions: ["Figma 실무 마스터", "SQL 중급", "GA·믹스패널"],
-    },
-    experience: {
-      title: "현장 경험",
-      tagline: "단기 인턴·\n장기 서포터즈로",
-      desc: "이력서에 들어갈 한 줄을 만들 시기.",
-      actions: ["여름 인턴 지원", "8주 서포터즈", "유관 동아리"],
-    },
-    spec: {
-      title: "스펙 마무리",
-      tagline: "어학·자격을\n취업용으로 정리",
-      desc: "정량 스펙을 마지막으로 한 번에 끝내두기.",
-      actions: ["토익 950+", "오픽 IH", "SQLD/ADsP"],
-    },
-    explore: {
-      title: "직무 좁히기",
-      tagline: "마지막으로 직무\n2개로 좁히기",
-      desc: "아직 헷갈리면 이번 방학에 둘 중 하나로 결정.",
-      actions: ["직무 비교 시트", "현직자 5명 인터뷰", "체험형 인턴 1주"],
-    },
-  },
-  "4학년": {
-    real: {
-      title: "킥 프로젝트",
-      tagline: "면접에서 말할\n임팩트 1개 끝내기",
-      desc: "이미 있는 것보다, '말할 수 있는 한 방'이 더 중요해요.",
-      actions: ["주제 1개 깊게 4주", "리드미·발표자료", "면접 스토리화"],
-    },
-    basic: {
-      title: "면접 대비 보강",
-      tagline: "직무 기본기\n다시 한번 점검",
-      desc: "지원 직무 기준으로 빈 곳만 빠르게 메꾸기.",
-      actions: ["CS 면접 대비", "직무 케이스 인강", "코딩 테스트"],
-    },
-    experience: {
-      title: "최종 인턴",
-      tagline: "전환형 인턴으로\n실전에서 마무리",
-      desc: "졸업 직전, 회사에서의 진짜 경험을 한 번 더.",
-      actions: ["전환형 인턴 지원", "현직자 레퍼체크", "실무 프로젝트"],
-    },
-    spec: {
-      title: "마지막 정리",
-      tagline: "지원서에 들어갈\n스펙 마지막 다듬기",
-      desc: "부족한 점수만 골라 끝내고, 지원서에 집중.",
-      actions: ["부족 점수 재시험", "자격증 1개", "포트폴리오 마감"],
-    },
-    explore: {
-      title: "지원 전략",
-      tagline: "여러 회사·직무\n지원 포트폴리오 짜기",
-      desc: "방향이 살짝 흐려도 괜찮음 — 지원지로 좁히는 시기.",
-      actions: ["JD 분석 10건", "분기별 지원 플랜", "면접 스터디"],
-    },
-  },
-};
-
-// 입력값에 따라 5개 플랜 카드를 '생성'하는 더미 (실제론 Claude API 응답)
-// level: -2(아주 가볍게) ~ +2(아주 빡세게)
-const LEVEL_LABELS = ["아주 가볍게", "가볍게", "보통", "빡세게", "아주 빡세게"];
-const LEVEL_PREFIXES = {
-  "-2": "최소 부담으로 ",
-  "-1": "가볍게 ",
-  "0":  "",
-  "1":  "조금 빡세게 ",
-  "2":  "풀로 몰입해서 ",
-};
-const LEVEL_DESC_SUFFIX = {
-  "-2": " (가장 부담 없는 수준으로 조정)",
-  "-1": " (살짝 가볍게 조정)",
-  "0":  "",
-  "1":  " (실전 강도로 조정)",
-  "2":  " (집중 몰입형으로 조정)",
-};
-
-function generatePlansForUser(form, level = 0) {
-  const grade = form.grade || "2학년";
-  const variants = PLAN_VARIANTS_BY_GRADE[grade] || PLAN_VARIANTS_BY_GRADE["2학년"];
-  const seasonHint = form.season === "겨울방학" ? "겨울 한정 — " : "";
-  const jobHint = form.job ? `${form.job} 지망 ` : "";
-  const lvKey = String(level);
-
-  return AXIS_ORDER.map((axisId) => {
-    const axis = PLAN_AXES[axisId];
-    const v = variants[axisId];
-    return {
-      id: axisId,
-      ...axis,
-      title: (LEVEL_PREFIXES[lvKey] || "") + v.title,
-      tagline: v.tagline,
-      desc: v.desc + (LEVEL_DESC_SUFFIX[lvKey] || ""),
-      actions: v.actions,
-      contextLine: `${jobHint}${grade} ${seasonHint}맞춤`.trim(),
-    };
-  });
-}
+const FALLBACK_ACTIVITIES = [
+  { id: "a1", emoji: "🎨", title: "포트폴리오 프로젝트 제작", tagline: "기획부터\n완성까지", desc: "실무 감각을 키우면서 포트폴리오에 바로 쓸 결과물을 만들어요.", duration: "6-8주" },
+  { id: "a2", emoji: "📝", title: "어학 점수 취득", tagline: "토익·오픽으로\n어학 베이스", desc: "취업 필수 스펙인 어학 점수를 방학 내 집중적으로 끝내요.", duration: "6-8주" },
+  { id: "a3", emoji: "💻", title: "실무 도구 스킬업", tagline: "현업이 쓰는\n도구 깊게 파기", desc: "지원 직무에서 쓰는 핵심 툴을 마스터해 면접 당장 써먹어요.", duration: "4-6주" },
+  { id: "a4", emoji: "🌍", title: "대외 활동·인턴 경험", tagline: "실전 경험으로\n이력서 한 줄", desc: "서포터즈·인턴으로 회사 환경을 미리 체험하고 인맥도 쌓아요.", duration: "8-12주" },
+  { id: "a5", emoji: "🏅", title: "자격증 취득", tagline: "취업 가산점\n자격증 완성", desc: "직무와 관련된 자격증을 방학 기간 안에 집중해서 취득해요.", duration: "8-12주" },
+];
 
 const GRADES = ["1학년", "2학년", "3학년", "4학년"];
 const SEASONS = ["여름방학", "겨울방학"];
@@ -232,76 +66,88 @@ const JOB_SUGGESTIONS_BY_KEY = {
   ],
 };
 
-// 더미 결과 데이터 (플랜별)
-const DUMMY_RESULTS = {
-  real: {
-    lectures: [
-      { name: "Figma 실무 마스터", desc: "UI 설계부터 인터랙션까지 한 번에", icon: "🎨" },
-      { name: "데이터 분석 부트캠프", desc: "프로젝트 기반으로 SQL·파이썬", icon: "📊" },
-    ],
-    certs: [
-      { name: "GAIQ", desc: "구글 애널리틱스 공식 자격", icon: "📈" },
-    ],
-    projects: [
-      { name: "사이드 프로젝트 매칭", desc: "팀원 모아서 4주 MVP 출시", icon: "🚀" },
-      { name: "교내 창업 동아리", desc: "아이디어 → 시제품까지", icon: "💡" },
-    ],
-  },
-  basic: {
-    lectures: [
-      { name: "CS50 한국어판", desc: "컴공 기초, 무료로 단단하게", icon: "💻" },
-      { name: "마케팅 입문 강의", desc: "퍼널·STP 기본기부터", icon: "📚" },
-    ],
-    certs: [
-      { name: "컴활 1급", desc: "엑셀·DB 기본 자격", icon: "📑" },
-      { name: "ADsP", desc: "데이터 분석 준전문가", icon: "🧮" },
-    ],
-    projects: [
-      { name: "노션 학습 트래커", desc: "30일 루틴 만들기", icon: "✏️" },
-    ],
-  },
-  experience: {
-    lectures: [
-      { name: "퍼블릭 스피킹 클래스", desc: "발표력·자기소개 훈련", icon: "🎤" },
-    ],
-    certs: [
-      { name: "한국사능력검정 2급", desc: "공공기관 가산점", icon: "🏛️" },
-    ],
-    projects: [
-      { name: "대학생 서포터즈 모음", desc: "기업·기관 활동 큐레이션", icon: "🌱" },
-      { name: "해외 봉사 프로그램", desc: "단기 파견 기회 정리", icon: "🌏" },
-    ],
-  },
-  spec: {
-    lectures: [
-      { name: "토익 950+ 단기 완성", desc: "RC·LC 패턴 분석", icon: "📝" },
-    ],
-    certs: [
-      { name: "오픽 IH 패스반", desc: "스피킹 템플릿 제공", icon: "🗣️" },
-      { name: "SQLD", desc: "데이터 자격 입문 끝판왕", icon: "🗄️" },
-    ],
-    projects: [
-      { name: "스펙업 체크리스트", desc: "방학 8주 플래너", icon: "✅" },
-    ],
-  },
-  explore: {
-    lectures: [
-      { name: "직무 탐색 워크숍", desc: "10개 직무 1시간씩 맛보기", icon: "🧭" },
-      { name: "MBTI 진로 매칭", desc: "성향 기반 직무 추천", icon: "🔍" },
-    ],
-    certs: [],
-    projects: [
-      { name: "주간 챌린지", desc: "매주 다른 분야 미니 과제", icon: "🎯" },
-      { name: "현직자 커피챗", desc: "5개 직무 인터뷰 매칭", icon: "☕" },
-    ],
-  },
-};
+const LEVEL_LABELS = ["아주 가볍게", "가볍게", "보통", "빡세게", "아주 빡세게"];
 
-const DUMMY_JOBS = [
-  { org: "(주)카카오스타일", title: "UX 리서치 인턴", deadline: "D-12", tag: "인턴" },
-  { org: "토스", title: "주니어 프로덕트 디자이너 챌린지", deadline: "D-7", tag: "공모전" },
-  { org: "대학생 마케팅 연합", title: "여름 서포터즈 8기 모집", deadline: "D-3", tag: "서포터즈" },
+// Claude API 실패 시 주차별 일정 폴백
+const FALLBACK_SCHEDULE = [
+  { week: 1, label: "준비 & 기초 학습", tasks: ["목표 구체화 및 계획 수립", "필요한 도구·자료 세팅", "기초 개념 및 레퍼런스 수집"] },
+  { week: 2, label: "본격 실행 시작", tasks: ["첫 번째 핵심 과제 착수", "데일리 루틴 확립", "중간 점검 기준 정하기"] },
+  { week: 3, label: "집중 실행", tasks: ["핵심 과제 중반부 진행", "막히는 부분 보완 학습", "진행 상황 기록"] },
+  { week: 4, label: "마무리 & 정리", tasks: ["최종 결과물 완성", "회고 및 다음 단계 계획", "포트폴리오·이력서 업데이트"] },
 ];
+
+function detectTag(text) {
+  if (/서포터즈/.test(text)) return "서포터즈";
+  if (/공모전|챌린지|해커톤/.test(text)) return "공모전";
+  if (/인턴/.test(text)) return "인턴";
+  if (/채용|신입/.test(text)) return "채용";
+  return "모집";
+}
+
+// Serper가 반환하는 상대/절대 날짜 문자열을 Date 객체로 변환
+function parseSerperDate(dateStr) {
+  if (!dateStr) return null;
+  const now = new Date();
+
+  // 영어: "3 days ago", "2 weeks ago", "1 month ago"
+  const en = dateStr.match(/(\d+)\s*(hour|day|week|month|year)s?\s*ago/i);
+  if (en) {
+    const n = parseInt(en[1]);
+    const d = new Date(now);
+    const u = en[2].toLowerCase();
+    if (u === "hour")  d.setHours(d.getHours() - n);
+    else if (u === "day")   d.setDate(d.getDate() - n);
+    else if (u === "week")  d.setDate(d.getDate() - n * 7);
+    else if (u === "month") d.setMonth(d.getMonth() - n);
+    else if (u === "year")  d.setFullYear(d.getFullYear() - n);
+    return d;
+  }
+
+  // 한국어: "3일 전", "2주 전", "1개월 전"
+  const kr = dateStr.match(/(\d+)\s*(시간|일|주|개월|년)\s*전/);
+  if (kr) {
+    const n = parseInt(kr[1]);
+    const d = new Date(now);
+    if (kr[2] === "시간") d.setHours(d.getHours() - n);
+    else if (kr[2] === "일")   d.setDate(d.getDate() - n);
+    else if (kr[2] === "주")   d.setDate(d.getDate() - n * 7);
+    else if (kr[2] === "개월") d.setMonth(d.getMonth() - n);
+    else if (kr[2] === "년")   d.setFullYear(d.getFullYear() - n);
+    return d;
+  }
+
+  // 절대 날짜 시도
+  const abs = new Date(dateStr);
+  return isNaN(abs) ? null : abs;
+}
+
+// 제목+스니펫에서 마감일을 추출 (링커리어·올포유·씽크컨테스트 공통 패턴)
+function parseDeadline(text) {
+  if (!text) return null;
+
+  // 범위 패턴: YYYY.MM.DD ~ YYYY.MM.DD → 끝 날짜가 마감일
+  const range = text.match(/\d{4}[.\-\/년]\s*\d{1,2}[.\-\/월]\s*\d{1,2}[일]?\s*[~\-]\s*(\d{4})[.\-\/년]\s*(\d{1,2})[.\-\/월]\s*(\d{1,2})/);
+  if (range) {
+    const d = new Date(parseInt(range[1]), parseInt(range[2]) - 1, parseInt(range[3]));
+    if (!isNaN(d)) return d;
+  }
+
+  // ~ 뒤에 오는 날짜 단독: ~2025.07.31
+  const tilde = text.match(/~\s*(\d{4})[.\-\/년]\s*(\d{1,2})[.\-\/월]\s*(\d{1,2})/);
+  if (tilde) {
+    const d = new Date(parseInt(tilde[1]), parseInt(tilde[2]) - 1, parseInt(tilde[3]));
+    if (!isNaN(d)) return d;
+  }
+
+  // 마감·deadline 키워드 뒤 날짜
+  const kw = text.match(/(?:마감|접수\s*마감|신청\s*마감)[^\d]*(\d{4})[.\-\/년]\s*(\d{1,2})[.\-\/월]\s*(\d{1,2})/i);
+  if (kw) {
+    const d = new Date(parseInt(kw[1]), parseInt(kw[2]) - 1, parseInt(kw[3]));
+    if (!isNaN(d)) return d;
+  }
+
+  return null;
+}
 
 // ───────────────────────────────────────────────────────
 // Small UI primitives
@@ -487,20 +333,12 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
     const season = form.season || "미지정";
 
     const userPrompt =
-      `관심사: ${interestsText}\n` +
-      `추가 설명: ${freeTextSafe}\n` +
+      `대학생 진로 컨설턴트로서 아래 학생에게 맞는 직무 3개를 추천해줘.\n` +
       `학년: ${grade}, 방학: ${season}\n` +
-      `아래 형식으로 직무 3개를 추천해줘.\n` +
-      `{\n` +
-      `  "jobs": [\n` +
-      `    {\n` +
-      `      "title": "직무명",\n` +
-      `      "emoji": "이모지",\n` +
-      `      "reason": "추천 이유 한 문장",\n` +
-      `      "skills": ["스킬1", "스킬2", "스킬3"]\n` +
-      `    }\n` +
-      `  ]\n` +
-      `}`;
+      `관심사: ${interestsText}\n` +
+      `추가 설명: ${freeTextSafe}\n\n` +
+      `반드시 아래 JSON 형식으로만 답변해. 다른 텍스트는 절대 포함하지 마.\n` +
+      `{"jobs":[{"title":"직무명","emoji":"이모지","reason":"추천 이유 한 문장","skills":["스킬1","스킬2","스킬3"]}]}`;
 
     try {
       const res = await fetch("/api/anthropic/v1/messages", {
@@ -509,23 +347,29 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
           max_tokens: 1024,
-          system:
-            "당신은 대학생 진로 컨설턴트입니다.\n" +
-            "학생의 관심사와 성향을 보고 잘 맞는 직무 3개를 추천해주세요.\n" +
-            "반드시 JSON만 반환하고 다른 텍스트는 절대 포함하지 마세요.",
+          system: "You are a Korean career consultant for university students. Always respond with only valid JSON, no markdown, no explanation.",
           messages: [{ role: "user", content: userPrompt }],
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${errBody}`);
+      }
       const data = await res.json();
-      const text = data?.content?.[0]?.text || "";
-      const parsed = JSON.parse(text);
+      const raw = data?.content?.[0]?.text || "";
+      console.log("[Claude API] raw response:", raw);
+
+      // 어떤 포맷으로 오든 첫 번째 {...} 블록 추출
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("no JSON object in response");
+      const parsed = JSON.parse(jsonMatch[0]);
       const jobs = parsed?.jobs;
-      if (!Array.isArray(jobs) || jobs.length === 0) throw new Error("invalid jobs payload");
+      if (!Array.isArray(jobs) || jobs.length === 0) throw new Error("invalid jobs array");
+
       setSuggestions(jobs);
       setPhase("suggested");
     } catch (err) {
-      console.warn("[Claude API] 직무 추천 호출 실패 — 더미 데이터로 폴백:", err);
+      console.error("[Claude API] 직무 추천 실패:", err);
       setSuggestions(JOB_SUGGESTIONS_BY_KEY.default);
       setPhase("suggested");
     }
@@ -702,15 +546,9 @@ function StepJobSuggest({ form, setForm, onNext, onBack, tweaks }) {
 // ───────────────────────────────────────────────────────
 function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, setSelected, onNext, onBack, tweaks }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
-  const layoutClass =
-    tweaks.cardLayout === "list"
-      ? "flex flex-col gap-3"
-      : tweaks.cardLayout === "stack"
-      ? "flex flex-col gap-3"
-      : "grid grid-cols-2 gap-3";
 
   return (
-    <section data-screen-label="02 플랜 선택" className="w-full max-w-[640px] mx-auto px-5 pb-32">
+    <section data-screen-label="02 플랜 선택" className="w-full max-w-[640px] mx-auto px-5 pb-44">
       <button onClick={onBack}
               className="text-[13px] text-slate-500 mb-3 inline-flex items-center gap-1 hover:text-slate-800">
         ← 뒤로
@@ -722,7 +560,7 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
         </div>
         <h2 className="text-[22px] leading-tight font-extrabold text-slate-900 tracking-tight">
           {form.grade} {form.season}<br />
-          <span className="text-[#5B6EF5]">너에게 맞는 5가지 플랜</span>
+          <span className="text-[#5B6EF5]">너에게 맞는 5가지 활동</span>
         </h2>
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {form.job && <Pill>{form.jobFromAI ? "✨ " : ""}{form.job}</Pill>}
@@ -731,103 +569,84 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
         </div>
       </div>
 
-      {loading && (
+      {loading ? (
         <div className={`p-8 ${radius} border border-slate-200 bg-white flex flex-col items-center gap-3 my-6`}>
           <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 border-t-[#5B6EF5] animate-spin" />
-          <div className="text-[13px] font-semibold text-slate-700">너에게 맞는 플랜을 짜는 중…</div>
+          <div className="text-[13px] font-semibold text-slate-700">너에게 맞는 활동을 고르는 중…</div>
           <div className="text-[12px] text-slate-500">{form.grade} · {form.season}{form.job ? ` · ${form.job}` : ""}</div>
         </div>
-      )}
-
-      {!loading && (
+      ) : (
         <>
-          <div className={layoutClass}>
-            {plans.map((p, i) => {
+          {/* 1열 활동 카드 목록 */}
+          <div className="flex flex-col gap-2.5">
+            {plans.map((p) => {
               const active = selected === p.id;
-              const isLast = i === plans.length - 1;
-              const wide = tweaks.cardLayout === "grid" && isLast ? "col-span-2" : "";
               return (
                 <button key={p.id}
                   onClick={() => setSelected(p.id)}
-                  className={`relative text-left p-4 border-2 transition-all overflow-hidden
-                              ${radius} ${wide}
-                              ${active
-                                ? "border-[#5B6EF5] shadow-md shadow-indigo-100"
-                                : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"}`}
+                  className={`w-full text-left p-3.5 border-2 transition-all flex items-center gap-3 ${radius} ${
+                    active
+                      ? "border-[#5B6EF5] shadow-md shadow-indigo-100"
+                      : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
+                  }`}
                   style={active ? { backgroundColor: "rgba(91,110,245,0.06)" } : {}}>
-                  {active && (
-                    <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-[#5B6EF5] text-white flex items-center justify-center text-xs font-bold">
-                      ✓
-                    </div>
-                  )}
                   {tweaks.showEmoji && (
-                    <div className={`w-10 h-10 ${radius} flex items-center justify-center text-xl mb-3
-                                    bg-gradient-to-br ${p.tone}`}>
+                    <div className={`w-10 h-10 shrink-0 ${radius} flex items-center justify-center text-xl bg-gradient-to-br ${p.tone}`}>
                       {p.emoji}
                     </div>
                   )}
-                  <div className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full mb-1.5 ${p.pill}`}>
-                    {p.name}
-                  </div>
-                  <div className="text-[15px] font-extrabold text-slate-900 leading-tight mb-1">
-                    {p.title}
-                  </div>
-                  <div className="text-[12.5px] font-semibold text-slate-700 leading-snug whitespace-pre-line">
-                    {p.tagline}
-                  </div>
-                  <div className="text-[11.5px] text-slate-500 mt-1.5 leading-snug">
-                    {p.desc}
-                  </div>
-                  {p.actions && p.actions.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2.5">
-                      {p.actions.slice(0, 3).map((a, j) => (
-                        <span key={j} className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 rounded">
-                          {a}
-                        </span>
-                      ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[14px] font-extrabold text-slate-900 leading-tight">{p.title}</div>
+                      {active && (
+                        <div className="w-5 h-5 rounded-full bg-[#5B6EF5] text-white flex items-center justify-center text-[10px] font-bold shrink-0">✓</div>
+                      )}
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="text-[11.5px] text-slate-500 leading-snug flex-1 line-clamp-1">{p.desc}</div>
+                      {p.duration && (
+                        <div className="shrink-0 px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-600 rounded-full whitespace-nowrap">
+                          📅 {p.duration}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </button>
               );
             })}
           </div>
-          {/* 수준 조절 — 좌우 버튼 */}
-          {(() => {
-            const min = level <= -2;
-            const max = level >= 2;
-            const idx = (level ?? 0) + 2; // 0~4
-            return (
-              <div className="mt-4 flex items-stretch gap-2">
-                <button onClick={() => onAdjustLevel(-1)} disabled={min}
-                  className={`flex-1 py-3 text-[12.5px] font-bold border-2 transition-all ${radius}
-                              ${min
-                                ? "border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-[#5B6EF5] hover:text-[#5B6EF5]"}`}>
-                  ← 수준 낮추기
-                  <div className="text-[10.5px] font-medium text-slate-400 mt-0.5">더 가병게</div>
-                </button>
-                <div className={`px-3 flex flex-col items-center justify-center min-w-[110px] border-2 border-slate-200 bg-white ${radius}`}>
-                  <div className="text-[10px] font-bold text-slate-400 tracking-wider">CURRENT</div>
-                  <div className="text-[12.5px] font-extrabold text-slate-900 mt-0.5">{LEVEL_LABELS[idx]}</div>
-                  <div className="flex gap-0.5 mt-1.5">
-                    {[0,1,2,3,4].map((d) => (
-                      <div key={d}
-                           className="w-1.5 h-1.5 rounded-full"
-                           style={{ backgroundColor: d === idx ? "#5B6EF5" : "#E2E8F0" }} />
-                    ))}
-                  </div>
-                </div>
-                <button onClick={() => onAdjustLevel(1)} disabled={max}
-                  className={`flex-1 py-3 text-[12.5px] font-bold border-2 transition-all ${radius}
-                              ${max
-                                ? "border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed"
-                                : "border-slate-200 bg-white text-slate-700 hover:border-[#5B6EF5] hover:text-[#5B6EF5]"}`}>
-                  수준 높이기 →
-                  <div className="text-[10.5px] font-medium text-slate-400 mt-0.5">더 빡세게</div>
-                </button>
+
+          {/* 수준 조절 */}
+          <div className="mt-4 flex items-stretch gap-2">
+            <button onClick={() => onAdjustLevel(-1)} disabled={level <= -2}
+              className={`flex-1 py-3 text-[12.5px] font-bold border-2 transition-all text-center ${radius} ${
+                level <= -2
+                  ? "border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-[#5B6EF5] hover:text-[#5B6EF5]"
+              }`}>
+              ← 더 가볍게
+              <div className="text-[10.5px] font-medium text-slate-400 mt-0.5">수준 낮추기</div>
+            </button>
+            <div className={`px-3 flex flex-col items-center justify-center min-w-[100px] border-2 border-slate-200 bg-white ${radius}`}>
+              <div className="text-[10px] font-bold text-slate-400 tracking-wider">LEVEL</div>
+              <div className="text-[12px] font-extrabold text-slate-900 mt-0.5">{LEVEL_LABELS[level + 2]}</div>
+              <div className="flex gap-0.5 mt-1.5">
+                {[0,1,2,3,4].map((d) => (
+                  <div key={d} className="w-1.5 h-1.5 rounded-full"
+                       style={{ backgroundColor: d === level + 2 ? "#5B6EF5" : "#E2E8F0" }} />
+                ))}
               </div>
-            );
-          })()}
+            </div>
+            <button onClick={() => onAdjustLevel(1)} disabled={level >= 2}
+              className={`flex-1 py-3 text-[12.5px] font-bold border-2 transition-all text-center ${radius} ${
+                level >= 2
+                  ? "border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-[#5B6EF5] hover:text-[#5B6EF5]"
+              }`}>
+              더 빡세게 →
+              <div className="text-[10.5px] font-medium text-slate-400 mt-0.5">수준 높이기</div>
+            </button>
+          </div>
         </>
       )}
 
@@ -843,7 +662,7 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
                 : "bg-slate-100 text-slate-400 cursor-not-allowed"
             }`}
             style={selected && !loading ? { backgroundColor: "#5B6EF5" } : {}}>
-            {selected ? "이 플랜으로 시작하기 →" : "플랜을 선택해주세요"}
+            {selected ? "이 활동으로 시작하기 →" : "활동을 선택해주세요"}
           </button>
         </div>
       </div>
@@ -854,70 +673,175 @@ function StepDirection({ form, plans, loading, level, onAdjustLevel, selected, s
 // ───────────────────────────────────────────────────────
 // Step 3 — 결과
 // ───────────────────────────────────────────────────────
-function ItemCard({ item, radius, accent }) {
-  return (
-    <div className={`relative p-3 ${radius} bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col h-full`}>
-      <div className={`w-8 h-8 ${radius} flex items-center justify-center text-base mb-2`}
-           style={{ backgroundColor: accent }}>
-        {item.icon}
-      </div>
-      <div className="text-[12.5px] font-extrabold text-slate-900 leading-tight line-clamp-2">{item.name}</div>
-      <div className="text-[11px] text-slate-500 mt-1 leading-snug flex-1 line-clamp-2">{item.desc}</div>
-      <button className="mt-2 self-start text-[11px] font-semibold text-[#5B6EF5] hover:underline">
-        보기 →
-      </button>
-    </div>
-  );
-}
-
-function JobSection({ radius }) {
+function JobSection({ radius, job, season }) {
   const [state, setState] = useState("loading"); // loading | success | error
+  const [jobs, setJobs] = useState([]);
 
-  useEffect(() => {
-    // TODO: Serper API 호출 — 실제 공고 데이터 fetch
-    // fetch("/api/serper", { method:"POST", body: JSON.stringify({ q: ... }) })
-    const t = setTimeout(() => {
-      setState(Math.random() < 0.85 ? "success" : "error");
-    }, 1600);
-    return () => clearTimeout(t);
-  }, []);
+  const fetchJobs = async () => {
+    setState("loading");
+    setJobs([]);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    let targetYear, monthRange, seasonKw;
+    if (season === "여름방학") {
+      targetYear = currentMonth > 8 ? currentYear + 1 : currentYear;
+      monthRange = "7월 8월";
+      seasonKw = "여름";
+    } else {
+      targetYear = currentMonth > 2 ? currentYear + 1 : currentYear;
+      monthRange = "1월 2월";
+      seasonKw = "겨울";
+    }
+
+    // 방학 3개월 전 ~ 방학 마지막날 윈도우
+    // 검색 기간: 지금 ~ 방학 마지막날
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const vacationEnd = season === "여름방학"
+      ? new Date(targetYear, 7, 31)  // 8월 31일
+      : new Date(targetYear, 1, 28); // 2월 28일
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const tbs = [
+      "cdr:1",
+      `cd_min:${pad(today.getMonth() + 1)}/${pad(today.getDate())}/${today.getFullYear()}`,
+      `cd_max:${pad(vacationEnd.getMonth() + 1)}/${pad(vacationEnd.getDate())}/${vacationEnd.getFullYear()}`,
+    ].join(",");
+
+    // 지정된 플랫폼에서만 검색
+    const sites = [
+      "site:linkareer.com",
+      "site:allforyoung.com",
+      "site:thinkcontest.com",
+    ].join(" OR ");
+    const jobKw = job || "대학생";
+    const query = `(${sites}) ${jobKw} ${seasonKw}방학 ${monthRange} ${targetYear}`;
+
+    try {
+      const res = await fetch("/api/serper/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q: query, gl: "kr", hl: "ko", num: 10, tbs }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const organic = data?.organic || [];
+
+      // 날짜 파싱 + 기간 필터
+      const withMeta = organic.map((r) => {
+        const postedDate = parseSerperDate(r.date);
+        const deadlineDate = parseDeadline(r.title + " " + (r.snippet || ""));
+        let orgName = "";
+        try { orgName = new URL(r.link).hostname.replace(/^www\./, ""); } catch (_) {}
+        return {
+          title: r.title,
+          org: orgName,
+          link: r.link,
+          snippet: r.snippet || "",
+          date: r.date || null,
+          postedDate,
+          deadlineDate,
+          tag: detectTag(r.title + " " + (r.snippet || "")),
+        };
+      }).filter((r) => {
+        // 마감일이 파싱됐고 오늘보다 이전이면 제거
+        if (r.deadlineDate && r.deadlineDate < today) return false;
+        // 게시일이 방학 마감 이후면 제거
+        if (r.postedDate && r.postedDate > vacationEnd) return false;
+        return true;
+      });
+
+      // 중복 제거: 제목 앞 15자(특수문자 제거) 기준
+      const seen = new Set();
+      const deduped = withMeta.filter((r) => {
+        const key = r.title.toLowerCase().replace(/[^가-힣a-z0-9]/g, "").slice(0, 15);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      setJobs(deduped.slice(0, 6));
+      setState(deduped.length === 0 ? "empty" : "success");
+    } catch (err) {
+      console.error("[Serper] 공고 조회 실패:", err);
+      setState("error");
+    }
+  };
+
+  useEffect(() => { fetchJobs(); }, [job, season]);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[15px] font-extrabold text-slate-900">📢 모집 중인 공고</h3>
-        {state === "error" && (
-          <button onClick={() => setState("loading")}
-                  className="text-[12px] text-[#5B6EF5] font-semibold">다시 시도</button>
-        )}
       </div>
+
       {state === "loading" && (
         <div className={`p-6 ${radius} border border-slate-200 bg-white flex flex-col items-center gap-3`}>
           <div className="w-7 h-7 rounded-full border-[3px] border-slate-200 border-t-[#5B6EF5] animate-spin" />
-          <div className="text-[12px] text-slate-500">실시간 공고를 가져오는 중…</div>
+          <div className="text-[12px] text-slate-500">
+            {job ? `"${job}" ${season} 공고를 검색하는 중…` : `${season} 공고를 가져오는 중…`}
+          </div>
         </div>
       )}
+
       {state === "success" && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {DUMMY_JOBS.map((j, i) => (
-            <div key={i} className={`p-4 ${radius} border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm transition-all flex flex-col`}>
-              <div className="flex items-center gap-1.5 mb-2">
+        <div className="flex flex-col gap-2.5">
+          {jobs.map((j, i) => {
+            // 마감까지 남은 일수 계산
+            const today = new Date(); today.setHours(0,0,0,0);
+            const daysLeft = j.deadlineDate
+              ? Math.ceil((j.deadlineDate - today) / (1000 * 60 * 60 * 24))
+              : null;
+            const fmtDeadline = j.deadlineDate
+              ? `${j.deadlineDate.getFullYear()}.${String(j.deadlineDate.getMonth()+1).padStart(2,"0")}.${String(j.deadlineDate.getDate()).padStart(2,"0")}`
+              : null;
+            return (
+            <a key={i} href={j.link} target="_blank" rel="noreferrer"
+               className={`block p-4 ${radius} border border-slate-200 bg-white hover:border-[#5B6EF5] hover:shadow-sm transition-all`}>
+              <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                 <Pill color="yellow">{j.tag}</Pill>
-                <span className="text-[11px] text-rose-600 font-bold">{j.deadline}</span>
+                {daysLeft !== null && daysLeft <= 7 && (
+                  <span className="text-[11px] font-bold text-rose-500">D-{daysLeft}</span>
+                )}
+                {daysLeft !== null && daysLeft > 7 && (
+                  <span className="text-[11px] font-semibold text-emerald-600">모집 중</span>
+                )}
+                {fmtDeadline && (
+                  <span className="text-[11px] text-slate-400 ml-auto">마감 {fmtDeadline}</span>
+                )}
               </div>
-              <div className="text-[14px] font-extrabold text-slate-900 leading-tight">{j.title}</div>
-              <div className="text-[12px] text-slate-500 mt-1 flex-1">{j.org}</div>
-              <button className="mt-3 self-start px-3 py-1.5 text-[11.5px] font-semibold rounded-full text-white"
-                      style={{ backgroundColor: "#5B6EF5" }}>
-                지원하기 →
-              </button>
-            </div>
-          ))}
+              <div className="text-[13.5px] font-extrabold text-slate-900 leading-snug mb-1">
+                {j.title}
+              </div>
+              <div className="text-[11.5px] text-slate-500 line-clamp-2 leading-snug mb-2">
+                {j.snippet}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-400">{j.org}</span>
+                <span className="text-[11.5px] font-semibold text-[#5B6EF5]">바로가기 →</span>
+              </div>
+            </a>
+            );
+          })}
         </div>
       )}
+
+      {state === "empty" && (
+        <div className={`p-6 ${radius} border border-dashed border-slate-200 bg-slate-50 text-center`}>
+          <div className="text-2xl mb-2">📭</div>
+          <div className="text-[14px] font-semibold text-slate-700">
+            아직 {season} 기간에 해당하는 공고가 없어요
+          </div>
+        </div>
+      )}
+
       {state === "error" && (
         <div className={`p-6 ${radius} border border-dashed border-slate-300 bg-slate-50 text-center`}>
-          <div className="text-[14px] font-semibold text-slate-700">현재 공고를 불러오지 못했어요 🥲</div>
+          <div className="text-[14px] font-semibold text-slate-700">공고를 불러오지 못했어요 🥲</div>
           <div className="text-[12px] text-slate-500 mt-1">잠시 후 다시 시도해주세요.</div>
         </div>
       )}
@@ -927,33 +851,116 @@ function JobSection({ radius }) {
 
 function StepResult({ form, plan, onRestart, tweaks }) {
   const radius = tweaks.cornerRadius === "rounded" ? "rounded-2xl" : "rounded-md";
-  const data = DUMMY_RESULTS[plan.id] || DUMMY_RESULTS.real;
-  const sections = [
-    { key: "lectures", label: "추천 강의", icon: "🎓" },
-    { key: "certs",    label: "자격증",   icon: "🏅" },
-    { key: "projects", label: "프로젝트", icon: "🛠" },
-  ];
+  const [schedule, setSchedule] = useState(null);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
 
-  // TODO: Claude API 호출 — 실제 추천 콘텐츠 생성
-  // const recs = await anthropic.messages.create({ model:"claude-...", messages:[...] })
+  const handleExportPDF = () => {
+    if (!schedule) return;
+    const weeksHtml = schedule.map((w) => `
+      <div class="week">
+        <div class="week-header">
+          <span class="badge">Week ${w.week}</span>
+          <span class="label">${w.label}</span>
+        </div>
+        <ul>${(w.tasks || []).map((t) => `<li>${t}</li>`).join("")}</ul>
+      </div>`).join("");
+    const meta = [form.grade, form.season, form.job, plan.duration].filter(Boolean).join(" · ");
+    const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+      <title>${plan.title} 방학 플랜</title>
+      <style>
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:'Pretendard',-apple-system,sans-serif;padding:40px;color:#1e293b;background:#fff}
+        .header{border-bottom:2px solid #5B6EF5;padding-bottom:14px;margin-bottom:24px}
+        .header h1{font-size:22px;font-weight:800}
+        .header .meta{font-size:12px;color:#64748b;margin-top:5px}
+        .week{border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:10px;page-break-inside:avoid}
+        .week-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+        .badge{background:#5B6EF5;color:#fff;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:800}
+        .label{font-size:14px;font-weight:800}
+        ul{list-style:none;padding:0}
+        li{font-size:12.5px;color:#475569;padding-left:14px;position:relative;line-height:1.7}
+        li::before{content:"•";position:absolute;left:0;color:#cbd5e1}
+        @media print{body{padding:24px}}
+      </style></head><body>
+      <div class="header">
+        <h1>${plan.emoji} ${plan.title}</h1>
+        <div class="meta">${meta}</div>
+      </div>
+      ${weeksHtml}
+    </body></html>`;
+    const win = window.open("", "_blank");
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  };
+
+  useEffect(() => {
+    const fetchSchedule = async () => {
+      setScheduleLoading(true);
+      const jobLine = form.job ? `희망 직무: ${form.job}` : "희망 직무: 미정";
+      const prompt =
+        `${form.grade} 학생의 ${form.season} 방학, 선택한 활동: "${plan.title}" (예상 기간: ${plan.duration || "미정"}).\n` +
+        `${jobLine}\n\n` +
+        `이 활동을 실천하는 방학 주차별 일정을 만들어줘.\n` +
+        `- 활동 특성에 맞는 주 수를 자유롭게 정해 (무조건 8주 채우지 말 것)\n` +
+        `- 자격증·어학처럼 방학을 넘기는 경우 솔직하게 주 수를 늘려도 됨\n` +
+        `- 각 주차마다 label(주제)과 tasks(3개 내외 구체적 할 일)를 써줘\n` +
+        `JSON 형식으로만 답변:\n` +
+        `{"weeks":[{"week":1,"label":"주제","tasks":["할 일1","할 일2","할 일3"]}]}`;
+
+      try {
+        const res = await fetch("/api/anthropic/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 2048,
+            system: "You are a Korean university vacation planning expert. Respond with only valid JSON, no markdown, no extra text.",
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const raw = data?.content?.[0]?.text || "";
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("no JSON");
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed?.weeks) || parsed.weeks.length === 0) throw new Error("invalid weeks");
+        setSchedule(parsed.weeks);
+      } catch (err) {
+        console.error("[Claude API] 일정 생성 실패:", err);
+        setSchedule(FALLBACK_SCHEDULE);
+      } finally {
+        setScheduleLoading(false);
+      }
+    };
+    fetchSchedule();
+  }, []);
 
   return (
     <section data-screen-label="03 결과" className="w-full max-w-[640px] mx-auto px-5 pb-24">
-      {/* 헤로 카드 */}
+
+      {/* 히어로 카드 */}
       <div className={`p-5 ${radius} mb-6 text-white relative overflow-hidden`}
            style={{ background: "linear-gradient(135deg,#5B6EF5 0%,#7B6FE8 100%)" }}>
         <div className="absolute -right-6 -top-6 w-32 h-32 rounded-full opacity-20"
              style={{ backgroundColor: "#FFD166" }} />
         <div className="absolute right-10 bottom-2 text-5xl opacity-30">{plan.emoji}</div>
         <div className="relative">
-          <div className="text-[11px] font-semibold opacity-80 mb-1">너의 방학 플랜</div>
+          <div className="text-[11px] font-semibold opacity-80 mb-1">선택한 활동</div>
           <div className="text-[22px] font-extrabold leading-tight">
-            {plan.emoji} {plan.title || plan.name}
+            {plan.emoji} {plan.title}
           </div>
           <div className="text-[13px] opacity-90 mt-1 whitespace-pre-line">
             {(plan.tagline || "").replace("\n", " ")}
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
+            {plan.duration && (
+              <span className="px-2.5 py-1 text-[11px] font-medium rounded-full"
+                    style={{ backgroundColor: "#FFD166", color: "#5a4500" }}>
+                📅 {plan.duration}
+              </span>
+            )}
             {form.job && (
               <span className="px-2.5 py-1 text-[11px] font-medium bg-white/20 backdrop-blur rounded-full inline-flex items-center gap-1">
                 {form.jobFromAI && <span>✨</span>}
@@ -963,52 +970,64 @@ function StepResult({ form, plan, onRestart, tweaks }) {
             <span className="px-2.5 py-1 text-[11px] font-medium bg-white/20 backdrop-blur rounded-full">
               {form.grade}
             </span>
-            <span className="px-2.5 py-1 text-[11px] font-medium rounded-full"
-                  style={{ backgroundColor: "#FFD166", color: "#5a4500" }}>
+            <span className="px-2.5 py-1 text-[11px] font-medium bg-white/20 backdrop-blur rounded-full">
               {form.season}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 섹션 1: 강의 / 자격증 / 프로젝트 — 키워드별 행으로 배치 */}
+      {/* 주차별 일정 */}
       <div className="mb-7">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-[15px] font-extrabold text-slate-900">✨ 너에게 딱 맞는 추천</h3>
-          <span className="text-[11px] text-slate-400">AI 큐레이션</span>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[15px] font-extrabold text-slate-900">📅 주차별 방학 일정</h3>
+          <button
+            onClick={handleExportPDF}
+            disabled={scheduleLoading || !schedule}
+            className={`flex items-center gap-1 px-3 py-1.5 text-[12px] font-semibold rounded-full transition-all ${
+              schedule && !scheduleLoading
+                ? "bg-[#5B6EF5] text-white hover:opacity-90 active:scale-95"
+                : "bg-slate-100 text-slate-400 cursor-not-allowed"
+            }`}>
+            ↓ PDF 저장
+          </button>
         </div>
-        <div className="flex flex-col gap-4">
-          {sections.map((s) => {
-            const items = data[s.key] || [];
-            return (
-              <div key={s.key}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[12px] font-extrabold text-slate-700">{s.label}</div>
-                  <span className="text-[10.5px] text-slate-400">{items.length}개</span>
+
+        {scheduleLoading ? (
+          <div className={`p-8 ${radius} border border-slate-200 bg-white flex flex-col items-center gap-3`}>
+            <div className="w-7 h-7 rounded-full border-[3px] border-slate-200 border-t-[#5B6EF5] animate-spin" />
+            <div className="text-[13px] font-semibold text-slate-700">방학 일정을 짜는 중…</div>
+            <div className="text-[11px] text-slate-500">{form.grade} · {plan.title} 맞춤 플랜</div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {(schedule || []).map((w) => (
+              <div key={w.week}
+                   className={`p-4 ${radius} bg-white border border-slate-200 hover:border-slate-300 transition-all`}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold text-white"
+                        style={{ backgroundColor: "#5B6EF5" }}>
+                    Week {w.week}
+                  </span>
+                  <div className="text-[13.5px] font-extrabold text-slate-900">{w.label}</div>
                 </div>
-                <div className="grid grid-cols-4 gap-2.5">
-                  {items.map((it, i) => (
-                    <div key={i}
-                         className={`p-3 ${radius} bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all`}>
-                      <div className="text-[12.5px] font-extrabold text-slate-900 leading-tight">{it.name}</div>
-                      <div className="text-[11px] text-slate-500 mt-1 leading-snug">{it.desc}</div>
-                    </div>
+                <ul className="space-y-1.5 pl-1">
+                  {(w.tasks || []).map((task, ti) => (
+                    <li key={ti} className="flex items-start gap-2 text-[12.5px] text-slate-600 leading-snug">
+                      <span className="mt-0.5 shrink-0 w-1.5 h-1.5 rounded-full bg-slate-300 inline-block" />
+                      {task}
+                    </li>
                   ))}
-                  {items.length === 0 && (
-                    <div className={`col-span-4 p-3 ${radius} border border-dashed border-slate-200 bg-slate-50 text-[11px] text-slate-400 text-center`}>
-                      추천 항목 없음
-                    </div>
-                  )}
-                </div>
+                </ul>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 섹션 2: 공고 (로딩) */}
+      {/* 공고 섹션 */}
       <div className="mb-8">
-        <JobSection radius={radius} />
+        <JobSection radius={radius} job={form.job} season={form.season} />
       </div>
 
       {/* 다시 선택 */}
@@ -1032,31 +1051,67 @@ function App() {
   });
   const [selectedPlan, setSelectedPlan] = useState(null);
 
-  // 입력 → 다음: 직무 모르면 jobSuggest, 알면 direction
-  const goAfterInput = () => {
-    setStep(form.unknownJob ? "jobSuggest" : "direction");
-  };
-
   // 결과까지 본 후 입력 단계로 되돌리되 직무 정보는 유지하고 싶다면 여기서 제어
   const goBackFromDirection = () => {
     setStep(form.jobFromAI ? "jobSuggest" : "input");
   };
 
-  // 추천 플랜 5개 (AI 생성 시뮬레이션)
+  // 추천 활동 5개 (AI 생성)
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(false);
   const [level, setLevel] = useState(0); // -2 ~ +2
 
-  // direction 단계 진입 시 더미 AI 호출
-  const generatePlans = (formSnapshot, lv = 0) => {
+  const LEVEL_INTENSITY = [
+    "부담이 전혀 없고 아주 여유로운",
+    "가볍고 부담 없는",
+    "적당한 수준의",
+    "도전적이고 실전 강도의",
+    "집중 몰입형 고강도의",
+  ];
+
+  const generatePlans = async (formSnapshot, lv = 0) => {
     setPlansLoading(true);
     setPlans([]);
     setSelectedPlan(null);
-    // TODO: Claude API 호출 — 입력값 + 수준(level)을 바탕으로 5개 플랜 카드 생성
-    setTimeout(() => {
-      setPlans(generatePlansForUser(formSnapshot, lv));
+
+    const jobLine = formSnapshot.job ? `희망 직무: ${formSnapshot.job}` : "희망 직무: 미정";
+    const intensity = LEVEL_INTENSITY[lv + 2];
+    const prompt =
+      `대학생 진로 컨설턴트로서 아래 학생에게 이번 방학에 도전할 구체적인 활동 5가지를 추천해줘.\n` +
+      `학년: ${formSnapshot.grade}, 방학: ${formSnapshot.season}, ${jobLine}\n` +
+      `활동 강도: ${intensity} 수준\n\n` +
+      `- 각 활동은 "토익 950점 달성", "Figma 포트폴리오 3개 제작"처럼 구체적이고 실천 가능해야 해\n` +
+      `- title은 짧고 명확하게, tagline은 2줄로 (\\n 구분), desc는 한 문장\n` +
+      `- duration은 현실적인 예상 기간 (예: "6-8주", "8-12주")\n` +
+      `반드시 아래 JSON 형식으로만 답변해. 다른 텍스트 절대 포함하지 마.\n` +
+      `{"activities":[{"id":"a1","emoji":"이모지","title":"활동명","tagline":"첫줄\\n둘째줄","desc":"설명 한 문장","duration":"예상 기간"}]}`;
+
+    try {
+      const res = await fetch("/api/anthropic/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1536,
+          system: "You are a Korean career consultant for university students. Always respond with only valid JSON, no markdown, no explanation.",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const raw = data?.content?.[0]?.text || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("no JSON");
+      const parsed = JSON.parse(jsonMatch[0]);
+      const activities = parsed?.activities;
+      if (!Array.isArray(activities) || activities.length === 0) throw new Error("invalid activities");
+      setPlans(activities.map((a, i) => ({ ...a, ...ACTIVITY_COLORS[i % ACTIVITY_COLORS.length] })));
+    } catch (err) {
+      console.error("[Claude API] 활동 생성 실패:", err);
+      setPlans(FALLBACK_ACTIVITIES.map((a, i) => ({ ...a, ...ACTIVITY_COLORS[i] })));
+    } finally {
       setPlansLoading(false);
-    }, 900);
+    }
   };
 
   const goToDirection = () => {
@@ -1095,9 +1150,9 @@ function App() {
     if (tweaks.demoStep === "3") {
       const next = { ...form, job: "UX 기획자", unknownJob: false, grade: "3학년", season: "여름방학" };
       setForm(next);
-      const generated = generatePlansForUser(next);
-      setPlans(generated);
-      setSelectedPlan("real");
+      const fallback = FALLBACK_ACTIVITIES.map((a, i) => ({ ...a, ...ACTIVITY_COLORS[i] }));
+      setPlans(fallback);
+      setSelectedPlan("a1");
       setStep("result");
     }
   }, [tweaks.demoStep]);
@@ -1133,7 +1188,7 @@ function App() {
       )}
 
       <TweaksPanel title="Tweaks">
-        <TweakSection title="레이아웃">
+        <TweakSection label="레이아웃">
           <TweakRadio
             label="플랜 카드 배치"
             value={tweaks.cardLayout}
@@ -1158,7 +1213,7 @@ function App() {
             onChange={(v) => setTweak("showEmoji", v)}
           />
         </TweakSection>
-        <TweakSection title="데모 점프">
+        <TweakSection label="데모 점프">
           <TweakSelect
             label="현재 단계"
             value={tweaks.demoStep}
